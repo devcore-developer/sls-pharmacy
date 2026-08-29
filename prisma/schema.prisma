@@ -1,0 +1,290 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String          @id @default(cuid())
+  email     String          @unique
+  name      String
+  roleId    String
+  role      Role            @relation(fields: [roleId], references: [id])
+  syncOps   SyncOperation[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  permissions Json?
+  createdAt   DateTime @default(now())
+  users       User[]
+}
+
+model SyncOperation {
+  id            String    @id @default(cuid())
+  operationId   String    @unique
+  deviceId      String
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id])
+  entityType    String
+  entityId      String
+  operationType String
+  payload       Json
+  syncStatus    String    @default("pending")
+  syncedAt      DateTime?
+  error         String?
+  retryCount    Int       @default(0)
+  createdAt     DateTime  @default(now())
+
+  @@index([syncStatus])
+  @@index([entityType])
+  @@index([deviceId])
+}
+
+model Medicine {
+  id                     String                       @id @default(cuid())
+  tradeName              String
+  genericName            String
+  manufacturer           String?
+  notes                  String?
+  archivedAt             DateTime?
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+  categories             MedicineCategory[]
+  pharmacologicalClasses MedicinePharmacologicalClass[]
+  batches                Batch[]
+  convoyItems            ConvoyItem[]
+  alternativesFrom       MedicineAlternative[]        @relation("AltFrom")
+  alternativesTo         MedicineAlternative[]        @relation("AltTo")
+}
+
+model MedicineAlternative {
+  id                    String    @id @default(cuid())
+  medicineId            String
+  alternativeMedicineId String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  medicine              Medicine  @relation("AltFrom", fields: [medicineId], references: [id], onDelete: Cascade)
+  alternativeMedicine   Medicine  @relation("AltTo", fields: [alternativeMedicineId], references: [id], onDelete: Cascade)
+
+  @@unique([medicineId, alternativeMedicineId])
+  @@index([medicineId])
+  @@index([alternativeMedicineId])
+}
+
+model Category {
+  id          String             @id @default(cuid())
+  name        String             @unique
+  description String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  medicines   MedicineCategory[]
+}
+
+model PharmacologicalClass {
+  id          String                       @id @default(cuid())
+  name        String                       @unique
+  description String?
+  createdAt   DateTime                     @default(now())
+  updatedAt   DateTime                     @updatedAt
+  medicines   MedicinePharmacologicalClass[]
+}
+
+model MedicineCategory {
+  medicineId String
+  categoryId String
+  medicine   Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([medicineId, categoryId])
+}
+
+model MedicinePharmacologicalClass {
+  medicineId             String
+  pharmacologicalClassId String
+  medicine               Medicine               @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  pharmacologicalClass   PharmacologicalClass   @relation(fields: [pharmacologicalClassId], references: [id], onDelete: Cascade)
+
+  @@id([medicineId, pharmacologicalClassId])
+}
+
+model Batch {
+  id          String    @id @default(cuid())
+  medicineId  String
+  batchNumber String
+  quantity    Int
+  expiryDate  DateTime
+  cartonId    String?
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  medicine    Medicine  @relation(fields: [medicineId], references: [id])
+  carton      Carton?   @relation(fields: [cartonId], references: [id])
+  convoyItems ConvoyItem[]
+  locationTransfers BatchLocationTransfer[]
+
+  @@index([medicineId])
+  @@index([batchNumber])
+  @@index([expiryDate])
+  @@index([cartonId])
+}
+
+model StorageSection {
+  id               String          @id @default(cuid())
+  name             String
+  code             String          @unique
+  description      String?
+  organizationType String
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  cartons          Carton[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+model Carton {
+  id           String          @id @default(cuid())
+  code         String          @unique
+  label        String
+  sectionId    String?
+  section      StorageSection? @relation(fields: [sectionId], references: [id])
+  locationNote String?
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  batches      Batch[]
+  fromTransfers  BatchLocationTransfer[] @relation("FromCarton")
+  toTransfers    BatchLocationTransfer[] @relation("ToCarton")
+
+  @@index([sectionId])
+  @@index([isActive])
+  @@index([code])
+}
+
+model Convoy {
+  id                String           @id @default(cuid())
+  name              String
+  date              DateTime
+  location          String?
+  responsiblePerson String?
+  notes             String?
+  status            String           @default("DRAFT")
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  completedAt       DateTime?
+  items             ConvoyItem[]
+  stockMovements    StockMovement[]
+
+  @@index([status])
+  @@index([date])
+}
+
+model ConvoyItem {
+  id                        String         @id @default(cuid())
+  convoyId                  String
+  medicineId                String
+  batchId                   String?
+  quantityTaken             Int
+  quantityDispensed         Int            @default(0)
+  quantityReturned          Int            @default(0)
+  quantityMissingOrDamaged  Int            @default(0)
+  reconciliationNote        String?
+  returnedAt                DateTime?
+  reconciledAt              DateTime?
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+  convoy                    Convoy         @relation(fields: [convoyId], references: [id], onDelete: Cascade)
+  medicine                  Medicine       @relation(fields: [medicineId], references: [id])
+  batch                     Batch?         @relation(fields: [batchId], references: [id])
+  stockMovements            StockMovement[]
+
+  @@index([convoyId])
+  @@index([medicineId])
+  @@index([batchId])
+}
+
+model StockMovement {
+  id             String            @id @default(cuid())
+  medicineId     String
+  batchId        String?
+  convoyId       String?
+  convoyItemId   String?
+  receiptId      String?
+  receiptItemId  String?
+  type           String
+  quantity       Int
+  reason         String?
+  notes          String?
+  createdAt      DateTime          @default(now())
+  deviceId       String
+  userId         String?
+  convoy         Convoy?          @relation(fields: [convoyId], references: [id])
+  convoyItem     ConvoyItem?      @relation(fields: [convoyItemId], references: [id])
+  receipt        StockReceipt?    @relation("MovementReceipt", fields: [receiptId], references: [id])
+  receiptItem    StockReceiptItem? @relation(fields: [receiptItemId], references: [id])
+
+  @@index([convoyId])
+  @@index([medicineId])
+  @@index([batchId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([reason])
+  @@index([receiptId])
+  @@index([receiptItemId])
+}
+
+model StockReceipt {
+  id                String              @id @default(cuid())
+  receiptNumber     String              @unique
+  date              DateTime
+  sourceType        String
+  sourceName        String?
+  responsiblePerson String?
+  notes             String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  items             StockReceiptItem[]
+  stockMovements    StockMovement[]     @relation("MovementReceipt")
+}
+
+model StockReceiptItem {
+  id             String           @id @default(cuid())
+  receiptId      String
+  receipt        StockReceipt    @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  medicineId     String
+  batchId        String?
+  quantity       Int
+  cartonId       String?
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  stockMovements StockMovement[]
+}
+
+model BatchLocationTransfer {
+  id           String   @id @default(cuid())
+  batchId      String
+  fromCartonId String?
+  toCartonId   String?
+  note         String?
+  createdAt    DateTime @default(now())
+  deviceId     String
+  userId       String?
+  batch        Batch    @relation(fields: [batchId], references: [id])
+  fromCarton   Carton?  @relation("FromCarton", fields: [fromCartonId], references: [id])
+  toCarton     Carton?  @relation("ToCarton", fields: [toCartonId], references: [id])
+
+  @@index([batchId])
+  @@index([fromCartonId])
+  @@index([toCartonId])
+  @@index([createdAt])
+}

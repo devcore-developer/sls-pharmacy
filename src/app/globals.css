@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Primary: #2563EB */
+    --primary: 217 91% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: derived neutral */
+    --secondary: 215 20% 46%;
+    --secondary-foreground: 0 0% 100%;
+
+    /* Background: #F8FAFC */
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    /* Surface: #FFFFFF */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Muted: #64748B */
+    --muted: 210 25% 94%;
+    --muted-foreground: 215 16% 47%;
+
+    /* Accent */
+    --accent: 210 25% 94%;
+    --accent-foreground: 222 47% 11%;
+
+    /* Danger: #DC2626 */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Border / Input */
+    --border: 214 20% 90%;
+    --input: 214 20% 90%;
+    --ring: 217 91% 53%;
+
+    --radius: 0.5rem;
+
+    /* Success: #16A34A */
+    --success: 142 71% 45%;
+    --success-foreground: 142 71% 95%;
+
+    /* Warning: #D97706 */
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 10%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 3px;
+  }
+}
