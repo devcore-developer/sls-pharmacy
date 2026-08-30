@@ -12,7 +12,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { session, loading } = useAuth();
+  const { session, loading, hasAnyPermission } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -50,12 +50,9 @@ export default function DashboardLayout({
 
   if (!session) return null;
 
-  // Route permission check
+  // Route permission check - use hasAnyPermission which handles ADMIN role
   const requiredPerms = getRequiredPermission(pathname);
-  if (
-    requiredPerms &&
-    !requiredPerms.some((p) => session.permissions.includes(p))
-  ) {
+  if (requiredPerms && !hasAnyPermission(requiredPerms)) {
     return (
       <AppShell>
         <PermissionDenied onBack={() => router.push("/dashboard")} />

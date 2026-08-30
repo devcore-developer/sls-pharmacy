@@ -49,32 +49,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [needsSetup, setNeedsSetup] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function init() {
       try {
-        // Check if admin exists (deterministic - from PostgreSQL)
+        // First, try to get existing session (faster path for logged-in users)
+        const sessionRes = await fetch("/api/auth/session");
+        
+        if (sessionRes.ok) {
+          const data = await sessionRes.json();
+          if (data.session && !cancelled) {
+            setSession(data.session);
+            setNeedsSetup(false);
+            setLoading(false);
+            return; // Exit early - user is logged in
+          }
+        }
+
+        // No valid session - check if setup is needed
         const setupRes = await fetch("/api/auth/check-setup");
         if (setupRes.ok) {
           const data = await setupRes.json();
-          setNeedsSetup(data.needsSetup);
-
-          if (data.hasAdmin) {
-            // Validate existing session
-            const sessionRes = await fetch("/api/auth/session");
-            if (sessionRes.ok) {
-              const sessionData = await sessionRes.json();
-              if (sessionData.session) {
-                setSession(sessionData.session);
-              }
-            }
+          if (!cancelled) {
+            setNeedsSetup(data.needsSetup);
           }
         } else {
-          // If setup check fails (e.g., DB not configured), show setup message
-          setNeedsSetup(true);
+          if (!cancelled) setNeedsSetup(true);
         }
       } catch (error) {
-        // Network error - check for cached session for offline access
+        // Network error - try cached session for offline
         const cachedSession = localStorage.getItem("sls_cached_session");
-        if (cachedSession) {
+        if (cachedSession && !cancelled) {
           try {
             const parsed = JSON.parse(cachedSession);
             const expiresAt = new Date(parsed.expiresAt);
@@ -83,50 +88,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               setNeedsSetup(false);
             }
           } catch {
-            // Invalid cache, ignore
+            // Invalid cache
           }
-        } else {
-          // No cache, assume needs setup when offline
-          setNeedsSetup(true);
         }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     init();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      try {
-        const res = await fetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password }),
-        });
+  const login = useCallback(async (email: string, password: string) => {
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
 
-        const data = await res.json();
+      const data = await res.json();
 
-        if (!res.ok) {
-          return { success: false, error: data.error || "Login failed" };
-        }
-
-        // Cache session for offline access
-        localStorage.setItem("sls_cached_session", JSON.stringify(data.user));
-
-        setSession(data.user);
-        setNeedsSetup(false);
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: "Network error. Please check your internet connection.",
-        };
+      if (!res.ok) {
+        return { success: false, error: data.error || "Login failed" };
       }
-    },
-    []
-  );
+
+      localStorage.setItem("sls_cached_session", JSON.stringify(data.user));
+      setSession(data.user);
+      setNeedsSetup(false);
+      return { success: true };
+    } catch {
+      return {
+        success: false,
+        error: "Network error. Please check your internet connection.",
+      };
+    }
+  }, []);
 
   const logout = useCallback(async () => {
     try {
@@ -134,7 +135,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Ignore network errors during logout
     }
-    // Always clear local state
     localStorage.removeItem("sls_cached_session");
     setSession(null);
   }, []);
