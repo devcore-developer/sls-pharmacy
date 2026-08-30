@@ -6,37 +6,33 @@ import {
   useState,
   useEffect,
   useCallback,
-  useRef,
   type ReactNode,
 } from "react";
-import type { SessionData } from "@/lib/auth/session";
-import {
-  validateSession,
-  createSession,
-  destroySession,
-  isFirstRun,
-} from "@/lib/auth/session";
-import { ensureDbReady } from "@/lib/offline/db";
-import { seedRolesAndPermissions } from "@/lib/offline/seed-roles-permissions";
-import {
-  authenticateUser,
-  getUserPermissions,
-} from "@/lib/offline/user-repository";
-import { logAudit } from "@/lib/offline/audit-repository";
 import type { PermissionKey } from "@/lib/permissions";
+
+export interface SessionData {
+  id: string;
+  userId: string;
+  email: string;
+  name: string;
+  roleName: string;
+  roleLabel: string;
+  permissions: string[];
+  createdAt: Date;
+  expiresAt: Date;
+}
 
 interface AuthContextValue {
   session: SessionData | null;
   loading: boolean;
-  firstRun: boolean;
+  needsSetup: boolean;
   login: (
-    username: string,
+    email: string,
     password: string
   ) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   hasPermission: (permission: PermissionKey) => boolean;
   hasAnyPermission: (permissions: PermissionKey[]) => boolean;
-  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -50,118 +46,102 @@ export function useAuth(): AuthContextValue {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [firstRun, setFirstRun] = useState(false);
-  const initializedRef = useRef(false);
-  const refreshInProgressRef = useRef(false);
-
-  const refreshSession = useCallback(async () => {
-    // Skip during SSR / static generation
-    if (typeof window === "undefined") return;
-
-    // Prevent concurrent refresh calls (React Strict Mode, rapid navigation)
-    if (refreshInProgressRef.current) return;
-    refreshInProgressRef.current = true;
-
-    setLoading(true);
-    
-    try {
-      // CRITICAL: Ensure DB is fully open before ANY operations
-      await ensureDbReady();
-      
-      // Seed roles and permissions (idempotent)
-      await seedRolesAndPermissions();
-      
-      // SINGLE SOURCE OF TRUTH: Check if admin exists
-      const isFR = await isFirstRun();
-      
-      // Only update state if not already initialized OR if this is the first time
-      // This prevents React Strict Mode from causing flickering
-      if (!initializedRef.current) {
-        initializedRef.current = true;
-        setFirstRun(isFR);
-        
-        if (!isFR) {
-          const s = await validateSession();
-          setSession(s);
-        } else {
-          setSession(null);
-        }
-      }
-    } catch (err) {
-      console.error("Session validation failed:", err);
-      // On error, don't assume firstRun - check if we can determine state
-      if (!initializedRef.current) {
-        initializedRef.current = true;
-        setSession(null);
-        // Don't set firstRun to true on error - that's dangerous
-        // Instead, keep it false and let user see login form
-        setFirstRun(false);
-      }
-    } finally {
-      setLoading(false);
-      refreshInProgressRef.current = false;
-    }
-  }, []);
+  const [needsSetup, setNeedsSetup] = useState(false);
 
   useEffect(() => {
-    refreshSession();
-  }, [refreshSession]);
+    async function init() {
+      try {
+        // Check if admin exists (deterministic - from PostgreSQL)
+        const setupRes = await fetch("/api/auth/check-setup");
+        if (setupRes.ok) {
+          const data = await setupRes.json();
+          setNeedsSetup(data.needsSetup);
+
+          if (data.hasAdmin) {
+            // Validate existing session
+            const sessionRes = await fetch("/api/auth/session");
+            if (sessionRes.ok) {
+              const sessionData = await sessionRes.json();
+              if (sessionData.session) {
+                setSession(sessionData.session);
+              }
+            }
+          }
+        } else {
+          // If setup check fails (e.g., DB not configured), show setup message
+          setNeedsSetup(true);
+        }
+      } catch (error) {
+        // Network error - check for cached session for offline access
+        const cachedSession = localStorage.getItem("sls_cached_session");
+        if (cachedSession) {
+          try {
+            const parsed = JSON.parse(cachedSession);
+            const expiresAt = new Date(parsed.expiresAt);
+            if (expiresAt > new Date()) {
+              setSession(parsed);
+              setNeedsSetup(false);
+            }
+          } catch {
+            // Invalid cache, ignore
+          }
+        } else {
+          // No cache, assume needs setup when offline
+          setNeedsSetup(true);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    init();
+  }, []);
 
   const login = useCallback(
-    async (username: string, password: string) => {
-      if (typeof window === "undefined") return { success: false, error: "Authentication not available." };
+    async (email: string, password: string) => {
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
 
-      await ensureDbReady();
+        const data = await res.json();
 
-      const result = await authenticateUser(username, password);
-      if (!result.success) return result;
+        if (!res.ok) {
+          return { success: false, error: data.error || "Login failed" };
+        }
 
-      const userId = result.user!.id as string;
-      const permissions = await getUserPermissions(userId);
-      const s = await createSession({
-        id: userId,
-        username: result.user!.username,
-        roleName: result.roleName!,
-        permissions,
-      });
-      
-      setSession(s);
-      setFirstRun(false);
+        // Cache session for offline access
+        localStorage.setItem("sls_cached_session", JSON.stringify(data.user));
 
-      await logAudit({
-        userId: userId,
-        action: "LOGIN",
-        entityType: "session",
-        entityId: s.id,
-      });
-
-      return { success: true };
+        setSession(data.user);
+        setNeedsSetup(false);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: "Network error. Please check your internet connection.",
+        };
+      }
     },
     []
   );
 
   const logout = useCallback(async () => {
-    const currentSession = session;
-    if (currentSession) {
-      try {
-        await logAudit({
-          userId: currentSession.userId,
-          action: "LOGOUT",
-          entityType: "session",
-          entityId: currentSession.id,
-        });
-      } catch {
-        // Ignore audit log errors during logout
-      }
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Ignore network errors during logout
     }
-    await destroySession();
+    // Always clear local state
+    localStorage.removeItem("sls_cached_session");
     setSession(null);
-    // IMPORTANT: Do NOT set firstRun to true on logout
-    // firstRun should only be true when there are NO users at all
-  }, [session]);
+  }, []);
 
   const hasPermission = useCallback(
     (permission: PermissionKey) => {
+      if (session?.roleName === "ADMIN") return true;
       return session?.permissions.includes(permission) ?? false;
     },
     [session]
@@ -169,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hasAnyPermission = useCallback(
     (permissions: PermissionKey[]) => {
+      if (session?.roleName === "ADMIN") return true;
       return permissions.some((p) => session?.permissions.includes(p)) ?? false;
     },
     [session]
@@ -179,12 +160,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         session,
         loading,
-        firstRun,
+        needsSetup,
         login,
         logout,
         hasPermission,
         hasAnyPermission,
-        refreshSession,
       }}
     >
       {children}

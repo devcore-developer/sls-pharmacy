@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/lib/prisma";
 
 // Permission mapping: operationType → required permission
 const OPERATION_PERMISSIONS: Record<string, string> = {
@@ -164,19 +162,9 @@ async function dispatchOperation(
       }
       break;
 
+    // Users are NOT synced - they are managed via Prisma Studio or create-admin script
     case "user":
-      if (operationType === "create" && p.id) {
-        await prisma.user.upsert({
-          where: { id: p.id as string },
-          create: {
-            id: p.id as string,
-            email: (p.email as string) || `${p.username}@local`,
-            name: (p.name as string) || "",
-            roleId: (p.roleId as string) || "",
-          },
-          update: {},
-        });
-      }
+      console.log(`Skipping user sync for: ${entityId} - users are managed in PostgreSQL directly`);
       break;
 
     default:

@@ -16,7 +16,6 @@ import { Badge } from "@/components/ui/badge";
 import { SyncStatusIndicator } from "@/components/shared/sync-status-indicator";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getPageTitle } from "@/lib/navigation";
-import { ROLE_LABELS } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
@@ -29,8 +28,8 @@ export function Header({ onMenuClick, className }: HeaderProps) {
   const { session, logout } = useAuth();
   const pageTitle = getPageTitle(pathname);
 
-  const displayName = session?.username ?? "User";
-  const roleLabel = session?.roleName ? (ROLE_LABELS[session.roleName as keyof typeof ROLE_LABELS] ?? session.roleName) : "";
+  const displayName = session?.name ?? "User";
+  const roleLabel = session?.roleLabel ?? "";
   const initials = displayName.slice(0, 2).toUpperCase();
 
   return (

@@ -12,7 +12,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { session, loading, firstRun } = useAuth();
+  const { session, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -23,14 +23,14 @@ export default function DashboardLayout({
     }
   }, [loading, session, router]);
 
-  // Open DB
+  // Open IndexedDB for offline pharmacy operations
   useEffect(() => {
     import("@/lib/offline/db")
       .then(({ db }) => db.open())
       .catch(() => {});
   }, []);
 
-  // Register SW
+  // Register Service Worker for PWA
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -52,7 +52,10 @@ export default function DashboardLayout({
 
   // Route permission check
   const requiredPerms = getRequiredPermission(pathname);
-  if (requiredPerms && !requiredPerms.some((p) => session.permissions.includes(p))) {
+  if (
+    requiredPerms &&
+    !requiredPerms.some((p) => session.permissions.includes(p))
+  ) {
     return (
       <AppShell>
         <PermissionDenied onBack={() => router.push("/dashboard")} />

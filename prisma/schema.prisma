@@ -8,23 +8,52 @@ datasource db {
 }
 
 model User {
-  id        String          @id @default(cuid())
-  email     String          @unique
-  name      String
-  roleId    String
-  role      Role            @relation(fields: [roleId], references: [id])
-  syncOps   SyncOperation[]
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  id                 String          @id @default(cuid())
+  email              String          @unique
+  name               String
+  passwordHash       String
+  passwordSalt       String
+  passwordAlgorithm  String          @default("PBKDF2-SHA256")
+  passwordIterations Int             @default(600000)
+  isActive           Boolean         @default(true)
+  roleId             String
+  role               Role            @relation(fields: [roleId], references: [id])
+  sessions           Session[]
+  syncOps            SyncOperation[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([roleId])
+  @@index([isActive])
+  @@map("users")
 }
 
 model Role {
-  id          String   @id @default(cuid())
-  name        String   @unique
+  id          String          @id @default(cuid())
+  name        String          @unique
+  label       String
   description String?
+  isSystem    Boolean         @default(false)
   permissions Json?
-  createdAt   DateTime @default(now())
   users       User[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@map("roles")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
 }
 
 model SyncOperation {
@@ -46,6 +75,7 @@ model SyncOperation {
   @@index([syncStatus])
   @@index([entityType])
   @@index([deviceId])
+  @@map("sync_operations")
 }
 
 model Medicine {
@@ -63,6 +93,8 @@ model Medicine {
   convoyItems            ConvoyItem[]
   alternativesFrom       MedicineAlternative[]        @relation("AltFrom")
   alternativesTo         MedicineAlternative[]        @relation("AltTo")
+
+  @@map("medicines")
 }
 
 model MedicineAlternative {
@@ -77,6 +109,7 @@ model MedicineAlternative {
   @@unique([medicineId, alternativeMedicineId])
   @@index([medicineId])
   @@index([alternativeMedicineId])
+  @@map("medicine_alternatives")
 }
 
 model Category {
@@ -86,6 +119,8 @@ model Category {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   medicines   MedicineCategory[]
+
+  @@map("categories")
 }
 
 model PharmacologicalClass {
@@ -95,6 +130,8 @@ model PharmacologicalClass {
   createdAt   DateTime                     @default(now())
   updatedAt   DateTime                     @updatedAt
   medicines   MedicinePharmacologicalClass[]
+
+  @@map("pharmacological_classes")
 }
 
 model MedicineCategory {
@@ -104,6 +141,7 @@ model MedicineCategory {
   category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@id([medicineId, categoryId])
+  @@map("medicine_categories")
 }
 
 model MedicinePharmacologicalClass {
@@ -113,27 +151,29 @@ model MedicinePharmacologicalClass {
   pharmacologicalClass   PharmacologicalClass   @relation(fields: [pharmacologicalClassId], references: [id], onDelete: Cascade)
 
   @@id([medicineId, pharmacologicalClassId])
+  @@map("medicine_pharmacological_classes")
 }
 
 model Batch {
-  id          String    @id @default(cuid())
-  medicineId  String
-  batchNumber String
-  quantity    Int
-  expiryDate  DateTime
-  cartonId    String?
-  archivedAt  DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  medicine    Medicine  @relation(fields: [medicineId], references: [id])
-  carton      Carton?   @relation(fields: [cartonId], references: [id])
-  convoyItems ConvoyItem[]
+  id                String                    @id @default(cuid())
+  medicineId        String
+  batchNumber       String
+  quantity          Int
+  expiryDate        DateTime
+  cartonId          String?
+  archivedAt        DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  medicine          Medicine                  @relation(fields: [medicineId], references: [id])
+  carton            Carton?                   @relation(fields: [cartonId], references: [id])
+  convoyItems       ConvoyItem[]
   locationTransfers BatchLocationTransfer[]
 
   @@index([medicineId])
   @@index([batchNumber])
   @@index([expiryDate])
   @@index([cartonId])
+  @@map("batches")
 }
 
 model StorageSection {
@@ -149,25 +189,27 @@ model StorageSection {
 
   @@index([name])
   @@index([isActive])
+  @@map("storage_sections")
 }
 
 model Carton {
-  id           String          @id @default(cuid())
-  code         String          @unique
-  label        String
-  sectionId    String?
-  section      StorageSection? @relation(fields: [sectionId], references: [id])
-  locationNote String?
-  isActive     Boolean         @default(true)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  batches      Batch[]
-  fromTransfers  BatchLocationTransfer[] @relation("FromCarton")
-  toTransfers    BatchLocationTransfer[] @relation("ToCarton")
+  id              String                   @id @default(cuid())
+  code            String                   @unique
+  label           String
+  sectionId       String?
+  section         StorageSection?          @relation(fields: [sectionId], references: [id])
+  locationNote    String?
+  isActive        Boolean                  @default(true)
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  batches         Batch[]
+  fromTransfers   BatchLocationTransfer[]  @relation("FromCarton")
+  toTransfers     BatchLocationTransfer[]  @relation("ToCarton")
 
   @@index([sectionId])
   @@index([isActive])
   @@index([code])
+  @@map("cartons")
 }
 
 model Convoy {
@@ -186,51 +228,53 @@ model Convoy {
 
   @@index([status])
   @@index([date])
+  @@map("convoys")
 }
 
 model ConvoyItem {
-  id                        String         @id @default(cuid())
-  convoyId                  String
-  medicineId                String
-  batchId                   String?
-  quantityTaken             Int
-  quantityDispensed         Int            @default(0)
-  quantityReturned          Int            @default(0)
-  quantityMissingOrDamaged  Int            @default(0)
-  reconciliationNote        String?
-  returnedAt                DateTime?
-  reconciledAt              DateTime?
-  createdAt                 DateTime       @default(now())
-  updatedAt                 DateTime       @updatedAt
-  convoy                    Convoy         @relation(fields: [convoyId], references: [id], onDelete: Cascade)
-  medicine                  Medicine       @relation(fields: [medicineId], references: [id])
-  batch                     Batch?         @relation(fields: [batchId], references: [id])
-  stockMovements            StockMovement[]
+  id                       String          @id @default(cuid())
+  convoyId                 String
+  medicineId               String
+  batchId                  String?
+  quantityTaken            Int
+  quantityDispensed        Int             @default(0)
+  quantityReturned         Int             @default(0)
+  quantityMissingOrDamaged Int             @default(0)
+  reconciliationNote       String?
+  returnedAt               DateTime?
+  reconciledAt             DateTime?
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
+  convoy                   Convoy          @relation(fields: [convoyId], references: [id], onDelete: Cascade)
+  medicine                 Medicine        @relation(fields: [medicineId], references: [id])
+  batch                    Batch?          @relation(fields: [batchId], references: [id])
+  stockMovements           StockMovement[]
 
   @@index([convoyId])
   @@index([medicineId])
   @@index([batchId])
+  @@map("convoy_items")
 }
 
 model StockMovement {
-  id             String            @id @default(cuid())
-  medicineId     String
-  batchId        String?
-  convoyId       String?
-  convoyItemId   String?
-  receiptId      String?
-  receiptItemId  String?
-  type           String
-  quantity       Int
-  reason         String?
-  notes          String?
-  createdAt      DateTime          @default(now())
-  deviceId       String
-  userId         String?
-  convoy         Convoy?          @relation(fields: [convoyId], references: [id])
-  convoyItem     ConvoyItem?      @relation(fields: [convoyItemId], references: [id])
-  receipt        StockReceipt?    @relation("MovementReceipt", fields: [receiptId], references: [id])
-  receiptItem    StockReceiptItem? @relation(fields: [receiptItemId], references: [id])
+  id            String            @id @default(cuid())
+  medicineId    String
+  batchId       String?
+  convoyId      String?
+  convoyItemId  String?
+  receiptId     String?
+  receiptItemId String?
+  type          String
+  quantity      Int
+  reason        String?
+  notes         String?
+  createdAt     DateTime          @default(now())
+  deviceId      String
+  userId        String?
+  convoy        Convoy?           @relation(fields: [convoyId], references: [id])
+  convoyItem    ConvoyItem?       @relation(fields: [convoyItemId], references: [id])
+  receipt       StockReceipt?     @relation("MovementReceipt", fields: [receiptId], references: [id])
+  receiptItem   StockReceiptItem? @relation(fields: [receiptItemId], references: [id])
 
   @@index([convoyId])
   @@index([medicineId])
@@ -240,6 +284,7 @@ model StockMovement {
   @@index([reason])
   @@index([receiptId])
   @@index([receiptItemId])
+  @@map("stock_movements")
 }
 
 model StockReceipt {
@@ -254,6 +299,8 @@ model StockReceipt {
   updatedAt         DateTime            @updatedAt
   items             StockReceiptItem[]
   stockMovements    StockMovement[]     @relation("MovementReceipt")
+
+  @@map("stock_receipts")
 }
 
 model StockReceiptItem {
@@ -268,6 +315,8 @@ model StockReceiptItem {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   stockMovements StockMovement[]
+
+  @@map("stock_receipt_items")
 }
 
 model BatchLocationTransfer {
@@ -287,4 +336,5 @@ model BatchLocationTransfer {
   @@index([fromCartonId])
   @@index([toCartonId])
   @@index([createdAt])
+  @@map("batch_location_transfers")
 }

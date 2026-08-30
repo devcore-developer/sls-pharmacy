@@ -3,25 +3,27 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/auth-context";
-import { createFirstAdmin } from "@/lib/offline/user-repository";
-import { PASSWORD_REQUIREMENTS, validatePassword } from "@/lib/auth/password";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Check, X, ShieldCheck } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { AlertTriangle, ShieldCheck } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { loading, firstRun, session, login, refreshSession } = useAuth();
+  const { loading, needsSetup, session, login } = useAuth();
 
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [adminName, setAdminName] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Redirect to dashboard if already has valid session
+  // Redirect to dashboard if already authenticated
   useEffect(() => {
     if (!loading && session) {
       router.replace("/dashboard");
@@ -31,10 +33,19 @@ export default function LoginPage() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!username.trim()) { setError("Please enter your username."); return; }
+
+    if (!email.trim()) {
+      setError("Please enter your email.");
+      return;
+    }
+    if (!password) {
+      setError("Please enter your password.");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const result = await login(username.trim(), password);
+      const result = await login(email.trim().toLowerCase(), password);
       if (result.success) {
         router.push("/dashboard");
       } else {
@@ -47,51 +58,7 @@ export default function LoginPage() {
     }
   }
 
-  async function handleCreateAdmin(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-
-    if (!adminName.trim()) { setError("Name is required."); return; }
-    if (!username.trim()) { setError("Username is required."); return; }
-
-    const validation = validatePassword(password);
-    if (!validation.valid) { setError(validation.errors.join(". ")); return; }
-
-    if (password !== confirmPassword) { setError("Passwords do not match."); return; }
-
-    setSubmitting(true);
-    try {
-      const result = await createFirstAdmin({
-        name: adminName.trim(),
-        username: username.trim(),
-        password,
-      });
-      if (result.success) {
-        // Refresh the auth state after creating admin
-        await refreshSession();
-        
-        const loginResult = await login(username.trim(), password);
-        if (loginResult.success) {
-          router.push("/dashboard");
-        } else {
-          setError("Admin created but auto-login failed. Please sign in manually.");
-          // Refresh again to update firstRun state
-          await refreshSession();
-        }
-      } else {
-        setError(result.error ?? "Failed to create administrator.");
-        // If "already exists" error, refresh to show login form
-        if (result.error?.includes("already exists")) {
-          await refreshSession();
-        }
-      }
-    } catch {
-      setError("An error occurred. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
+  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -103,12 +70,8 @@ export default function LoginPage() {
     );
   }
 
-  // Don't render anything while session is being redirected
+  // Don't render login form while redirecting
   if (session) return null;
-
-  // CRITICAL: Only show setup if firstRun is true AND we're not loading
-  // This prevents flickering between setup and login forms
-  const isSetup = firstRun && !session;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -118,85 +81,107 @@ export default function LoginPage() {
             SLS
           </div>
           <h1 className="text-xl font-bold text-foreground">SLS Pharmacy</h1>
-          <p className="text-sm text-muted-foreground mt-1">Charity Pharmacy Management System</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Charity Pharmacy Management System
+          </p>
         </div>
 
-        <Card>
-          <CardHeader className="text-center">
-            {isSetup ? (
-              <>
-                <CardTitle className="text-lg">Create Administrator</CardTitle>
-                <CardDescription>No users found. Create the first admin account to get started.</CardDescription>
-              </>
-            ) : (
-              <>
-                <CardTitle className="text-lg">Sign In</CardTitle>
-                <CardDescription>Enter your credentials to access the system</CardDescription>
-              </>
-            )}
-          </CardHeader>
-          <CardContent>
-            {isSetup ? (
-              <form onSubmit={handleCreateAdmin} className="space-y-4">
-                <div className="space-y-2">
-                  <label htmlFor="adminName" className="text-sm font-medium text-foreground">Full Name <span className="text-destructive">*</span></label>
-                  <Input id="adminName" placeholder="e.g. Ahmed Hassan" value={adminName} onChange={(e) => setAdminName(e.target.value)} autoFocus />
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="setupUsername" className="text-sm font-medium text-foreground">Username <span className="text-destructive">*</span></label>
-                  <Input id="setupUsername" placeholder="e.g. ahmed" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="setupPassword" className="text-sm font-medium text-foreground">Password <span className="text-destructive">*</span></label>
-                  <Input id="setupPassword" type="password" placeholder="Create a strong password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
-                  {password.length > 0 && (
-                    <ul className="space-y-1 mt-2">
-                      {PASSWORD_REQUIREMENTS.map((req) => {
-                        const met = req.test(password);
-                        return (
-                          <li key={req.label} className={`flex items-center gap-1.5 text-xs ${met ? "text-green-600" : "text-muted-foreground"}`}>
-                            {met ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                            {req.label}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="setupConfirm" className="text-sm font-medium text-foreground">Confirm Password <span className="text-destructive">*</span></label>
-                  <Input id="setupConfirm" type="password" placeholder="Re-enter your password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" />
-                </div>
-                {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
-                <Button type="submit" className="w-full" disabled={submitting}>
-                  {submitting ? "Creating..." : "Create Administrator"}
-                </Button>
-              </form>
-            ) : (
+        {needsSetup ? (
+          /* Setup Required State */
+          <Card>
+            <CardHeader className="text-center">
+              <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
+              <CardTitle className="text-lg">Setup Required</CardTitle>
+              <CardDescription>
+                No administrator has been configured yet.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Please create the initial administrator by running this command
+                  in your terminal:
+                </p>
+                <code className="block bg-background rounded-md p-3 text-sm font-mono border">
+                  npm run create:admin
+                </code>
+                <p className="text-xs text-muted-foreground">
+                  After creating the administrator, refresh this page to login.
+                </p>
+              </div>
+
+              <Button
+                variant="outline"
+                className="w-full mt-4"
+                onClick={() => window.location.reload()}
+              >
+                Refresh Page
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          /* Login Form */
+          <Card>
+            <CardHeader className="text-center">
+              <CardTitle className="text-lg">Sign In</CardTitle>
+              <CardDescription>
+                Enter your credentials to access the system
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <label htmlFor="username" className="text-sm font-medium text-foreground">Username</label>
-                  <Input id="username" placeholder="Enter your username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus />
+                  <label
+                    htmlFor="email"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Email
+                  </label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="admin@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
+                    autoFocus
+                  />
                 </div>
                 <div className="space-y-2">
-                  <label htmlFor="password" className="text-sm font-medium text-foreground">Password</label>
-                  <Input id="password" type="password" placeholder="Enter your password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+                  <label
+                    htmlFor="password"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Password
+                  </label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                  />
                 </div>
-                {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+                {error && (
+                  <p className="text-sm text-destructive" role="alert">
+                    {error}
+                  </p>
+                )}
                 <Button type="submit" className="w-full" disabled={submitting}>
                   {submitting ? "Signing in..." : "Sign In"}
                 </Button>
               </form>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="mt-6 flex items-start gap-2 rounded-lg bg-muted/60 p-3">
           <ShieldCheck className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
           <p className="text-xs text-muted-foreground leading-relaxed">
-            {isSetup
-              ? "This is the first time the system is launched. Your password is securely hashed using PBKDF2 and stored locally."
-              : "Offline authentication — credentials are verified locally. No internet connection required."}
+            {needsSetup
+              ? "Initial setup is required before using the system."
+              : "Credentials are verified against the database. Pharmacy data is stored locally for offline access."}
           </p>
         </div>
       </div>
