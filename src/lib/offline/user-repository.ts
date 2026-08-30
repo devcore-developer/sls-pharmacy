@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db, ensureDbReady } from "./db";
 import type { UserRecord } from "./db";
 import { hashPassword, verifyPassword, validatePassword } from "@/lib/auth/password";
 import { logAudit } from "./audit-repository";
@@ -48,6 +48,8 @@ export async function authenticateUser(username: string, password: string): Prom
   user?: UserRecord;
   roleName?: string;
 }> {
+  await ensureDbReady();
+  
   const user = await db.users.where("username").equals(username.trim()).first();
   if (!user) return { success: false, error: "Invalid username or password." };
   if (!user.isActive) return { success: false, error: "Your account is inactive." };
@@ -71,45 +73,67 @@ export async function createFirstAdmin(data: {
   username: string;
   password: string;
 }): Promise<{ success: boolean; error?: string }> {
-  const count = await db.users.count();
-  if (count > 0) return { success: false, error: "An administrator already exists." };
+  await ensureDbReady();
+  
+  // CRITICAL: Use transaction to prevent race conditions
+  let result: { success: boolean; error?: string };
+  
+  await db.transaction("rw", [db.users, db.rolePermissions, db.roles, db.syncOperations], async () => {
+    // Double-check inside transaction
+    const count = await db.users.count();
+    if (count > 0) {
+      result = { success: false, error: "An administrator already exists." };
+      return;
+    }
 
-  const validation = validatePassword(data.password);
-  if (!validation.valid) return { success: false, error: validation.errors.join(". ") };
+    const validation = validatePassword(data.password);
+    if (!validation.valid) {
+      result = { success: false, error: validation.errors.join(". ") };
+      return;
+    }
 
-  const existing = await db.users.where("username").equals(data.username.trim()).first();
-  if (existing) return { success: false, error: "Username already exists." };
+    const existing = await db.users.where("username").equals(data.username.trim()).first();
+    if (existing) {
+      result = { success: false, error: "Username already exists." };
+      return;
+    }
 
-  const adminRole = await db.roles.where("name").equals(SYSTEM_ROLES.ADMIN).first();
-  if (!adminRole) return { success: false, error: "System not initialized. Please refresh." };
+    const adminRole = await db.roles.where("name").equals(SYSTEM_ROLES.ADMIN).first();
+    if (!adminRole) {
+      result = { success: false, error: "System not initialized. Please refresh." };
+      return;
+    }
 
-  const hashed = await hashPassword(data.password);
-  const now = new Date();
-  const id = crypto.randomUUID();
+    const hashed = await hashPassword(data.password);
+    const now = new Date();
+    const id = crypto.randomUUID();
 
-  await db.users.add({
-    id,
-    username: data.username.trim(),
-    name: data.name.trim(),
-    passwordHash: hashed.hash,
-    passwordSalt: hashed.salt,
-    passwordAlgorithm: hashed.algorithm,
-    passwordIterations: hashed.iterations,
-    roleId: adminRole.id!,
-    isActive: true,
-    createdAt: now,
-    updatedAt: now,
+    await db.users.add({
+      id,
+      username: data.username.trim(),
+      name: data.name.trim(),
+      passwordHash: hashed.hash,
+      passwordSalt: hashed.salt,
+      passwordAlgorithm: hashed.algorithm,
+      passwordIterations: hashed.iterations,
+      roleId: adminRole.id!,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await logAudit({
+      userId: id,
+      action: "USER_CREATED",
+      entityType: "user",
+      entityId: id,
+      metadata: { username: data.username.trim(), role: "ADMIN", firstAdmin: true },
+    });
+
+    result = { success: true };
   });
-
-  await logAudit({
-    userId: id,
-    action: "USER_CREATED",
-    entityType: "user",
-    entityId: id,
-    metadata: { username: data.username.trim(), role: "ADMIN", firstAdmin: true },
-  });
-
-  return { success: true };
+  
+  return result!;
 }
 
 /* ------------------------------------------------------------------ */
@@ -117,6 +141,8 @@ export async function createFirstAdmin(data: {
 /* ------------------------------------------------------------------ */
 
 export async function getAllUsers(): Promise<UserListItem[]> {
+  await ensureDbReady();
+  
   const users = await db.users.orderBy("createdAt").toArray();
   const roleIds = [...new Set(users.map((u) => u.roleId))];
   const roles = roleIds.length > 0 ? await db.roles.where("id").anyOf(roleIds).toArray() : [];
@@ -139,6 +165,8 @@ export async function getAllUsers(): Promise<UserListItem[]> {
 }
 
 export async function getUserById(id: string): Promise<UserDetail | null> {
+  await ensureDbReady();
+  
   const user = await db.users.get(id);
   if (!user) return null;
 
@@ -161,6 +189,8 @@ export async function createUser(
   data: CreateUserFormData,
   creatorId: string
 ): Promise<{ success: boolean; error?: string }> {
+  await ensureDbReady();
+  
   const validation = validatePassword(data.password);
   if (!validation.valid) return { success: false, error: validation.errors.join(". ") };
 
@@ -208,6 +238,8 @@ export async function updateUser(
   data: UpdateUserFormData,
   editorId: string
 ): Promise<{ success: boolean; error?: string }> {
+  await ensureDbReady();
+  
   const user = await db.users.get(id);
   if (!user) return { success: false, error: "User not found." };
 
@@ -288,6 +320,8 @@ export async function deactivateUser(
 /* ------------------------------------------------------------------ */
 
 export async function getUserPermissions(userId: string): Promise<string[]> {
+  await ensureDbReady();
+  
   const user = await db.users.get(userId);
   if (!user) return [];
 
@@ -300,6 +334,8 @@ export async function getUserPermissions(userId: string): Promise<string[]> {
 /* ------------------------------------------------------------------ */
 
 export async function canDeactivateUser(userId: string): Promise<{ allowed: boolean; reason?: string }> {
+  await ensureDbReady();
+  
   const user = await db.users.get(userId);
   if (!user) return { allowed: false, reason: "User not found." };
 
@@ -323,6 +359,8 @@ export async function canChangeRole(
   userId: string,
   newRoleId: string
 ): Promise<{ allowed: boolean; reason?: string }> {
+  await ensureDbReady();
+  
   const user = await db.users.get(userId);
   if (!user) return { allowed: false, reason: "User not found." };
 
@@ -347,6 +385,8 @@ export async function canChangeRole(
 }
 
 export async function getActiveAdminCount(): Promise<number> {
+  await ensureDbReady();
+  
   const adminRole = await db.roles.where("name").equals(SYSTEM_ROLES.ADMIN).first();
   if (!adminRole) return 0;
   return db.users.filter((u) => u.isActive !== false && u.roleId === adminRole.id!).count();

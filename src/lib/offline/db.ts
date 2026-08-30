@@ -415,7 +415,7 @@ class SLSPharmacyDB extends Dexie {
         });
     });
 
-    // Phase 10: Users, Roles & Permissions
+    // Phase 10: Users, Roles & Permissions (ORIGINAL - kept for upgrade path)
     this.version(10).stores({
       medicines: "id, tradeName, genericName, archivedAt, createdAt, updatedAt",
       categories: "id, name, createdAt",
@@ -441,7 +441,149 @@ class SLSPharmacyDB extends Dexie {
       sessions: "++id, userId, expiresAt, createdAt",
       auditLogs: "++id, userId, action, entityType, entityId, deviceId, createdAt",
     });
+
+    // Phase 11: Fix primary key types for UUID-based tables
+    // Migrate from ++id (auto-increment) to id (provided UUID)
+    this.version(11).stores({
+      medicines: "id, tradeName, genericName, archivedAt, createdAt, updatedAt",
+      categories: "id, name, createdAt",
+      pharmacologicalClasses: "id, name, createdAt",
+      medicineCategories: "[medicineId+categoryId], medicineId, categoryId",
+      medicinePharmacologicalClasses: "[medicineId+pharmacologicalClassId], medicineId, pharmacologicalClassId",
+      medicineAlternatives: "id, medicineId, alternativeMedicineId",
+      batches: "id, medicineId, batchNumber, expiryDate, cartonId, archivedAt, createdAt, updatedAt",
+      cartons: "id, code, sectionId, isActive, createdAt",
+      storageSections: "id, name, code, isActive, createdAt",
+      batchLocationTransfers: "id, batchId, fromCartonId, toCartonId, createdAt",
+      convoys: "id, status, date, createdAt",
+      convoyItems: "id, convoyId, medicineId, batchId, createdAt",
+      stockMovements: "id, medicineId, batchId, convoyId, convoyItemId, receiptId, receiptItemId, type, createdAt",
+      cartonsOld: "id, medicineId, batchId, cartonNumber, location",
+      syncOperations: "id, operationId, deviceId, entityType, entityId, operationType, syncStatus, createdAt",
+      stockReceipts: "id, receiptNumber, sourceType, date, createdAt",
+      stockReceiptItems: "id, receiptId, medicineId, batchId, createdAt",
+      // FIX: Changed from ++id to id for UUID-based primary keys
+      users: "id, username, roleId, isActive, createdAt",
+      roles: "id, name, isSystem, createdAt",
+      permissions: "id, key, group",
+      rolePermissions: "id, roleId, permissionKey, &[roleId+permissionKey]",
+      sessions: "id, userId, expiresAt, createdAt",
+      auditLogs: "id, userId, action, entityType, entityId, deviceId, createdAt",
+    }).upgrade(async (tx) => {
+      // Migrate users table: ensure all records have UUID primary keys
+      const users = await tx.table("users").toArray();
+      for (const user of users) {
+        // If the primary key is a number (auto-generated), generate a UUID
+        if (typeof user.id === "number") {
+          const newId = crypto.randomUUID();
+          // Copy all data with new UUID
+          const userData = { ...user };
+          delete (userData as Record<string, unknown>).id;
+          (userData as Record<string, unknown>).id = newId;
+          await tx.table("users").delete(user.id as number);
+          await tx.table("users").add(userData);
+          
+          // Update any references in sessions and auditLogs
+          const sessions = await tx.table("sessions").where("userId").equals(String(user.id)).toArray();
+          for (const session of sessions) {
+            await tx.table("sessions").update(session.id as number, { userId: newId });
+          }
+          
+          const auditLogs = await tx.table("auditLogs").where("userId").equals(String(user.id)).toArray();
+          for (const log of auditLogs) {
+            await tx.table("auditLogs").update(log.id as number, { userId: newId });
+          }
+        }
+      }
+      
+      // Migrate roles table
+      const roles = await tx.table("roles").toArray();
+      for (const role of roles) {
+        if (typeof role.id === "number") {
+          const newId = crypto.randomUUID();
+          const oldId = role.id;
+          const roleData = { ...role };
+          delete (roleData as Record<string, unknown>).id;
+          (roleData as Record<string, unknown>).id = newId;
+          await tx.table("roles").delete(oldId as number);
+          await tx.table("roles").add(roleData);
+          
+          // Update rolePermissions references
+          const rolePerms = await tx.table("rolePermissions").where("roleId").equals(String(oldId)).toArray();
+          for (const rp of rolePerms) {
+            await tx.table("rolePermissions").update(rp.id as number, { roleId: newId });
+          }
+          
+          // Update users with this roleId
+          const usersWithRole = await tx.table("users").where("roleId").equals(String(oldId)).toArray();
+          for (const u of usersWithRole) {
+            await tx.table("users").update(u.id as string, { roleId: newId });
+          }
+        }
+      }
+      
+      // Migrate permissions table
+      const perms = await tx.table("permissions").toArray();
+      for (const perm of perms) {
+        if (typeof perm.id === "number") {
+          const newId = crypto.randomUUID();
+          const permData = { ...perm };
+          delete (permData as Record<string, unknown>).id;
+          (permData as Record<string, unknown>).id = newId;
+          await tx.table("permissions").delete(perm.id as number);
+          await tx.table("permissions").add(permData);
+        }
+      }
+      
+      // Migrate rolePermissions table
+      const rolePerms = await tx.table("rolePermissions").toArray();
+      for (const rp of rolePerms) {
+        if (typeof rp.id === "number") {
+          const newId = crypto.randomUUID();
+          const rpData = { ...rp };
+          delete (rpData as Record<string, unknown>).id;
+          (rpData as Record<string, unknown>).id = newId;
+          await tx.table("rolePermissions").delete(rp.id as number);
+          await tx.table("rolePermissions").add(rpData);
+        }
+      }
+      
+      // Migrate sessions table
+      const sessions = await tx.table("sessions").toArray();
+      for (const session of sessions) {
+        if (typeof session.id === "number") {
+          const newId = crypto.randomUUID();
+          const sessionData = { ...session };
+          delete (sessionData as Record<string, unknown>).id;
+          (sessionData as Record<string, unknown>).id = newId;
+          await tx.table("sessions").delete(session.id as number);
+          await tx.table("sessions").add(sessionData);
+        }
+      }
+      
+      // Migrate auditLogs table
+      const auditLogs = await tx.table("auditLogs").toArray();
+      for (const log of auditLogs) {
+        if (typeof log.id === "number") {
+          const newId = crypto.randomUUID();
+          const logData = { ...log };
+          delete (logData as Record<string, unknown>).id;
+          (logData as Record<string, unknown>).id = newId;
+          await tx.table("auditLogs").delete(log.id as number);
+          await tx.table("auditLogs").add(logData);
+        }
+      }
+    });
   }
 }
 
 export const db = new SLSPharmacyDB();
+
+/**
+ * Ensures the database is open and ready for operations.
+ * This should be called before any critical operations.
+ */
+export async function ensureDbReady(): Promise<void> {
+  if (typeof window === "undefined") return;
+  await db.open();
+}

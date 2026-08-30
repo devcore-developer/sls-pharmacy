@@ -1,11 +1,15 @@
-import { db } from "./db";
+import { db, ensureDbReady } from "./db";
 import { PERMISSIONS, ROLE_PERMISSIONS, SYSTEM_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from "@/lib/permissions";
 import type { SystemRole } from "@/lib/permissions";
+import { logAudit } from "./audit-repository";
 
 let seeded = false;
 
 export async function seedRolesAndPermissions(): Promise<void> {
   if (seeded) return;
+  
+  // Ensure DB is ready before seeding
+  await ensureDbReady();
 
   const permCount = await db.permissions.count();
   if (permCount === 0) {
@@ -47,4 +51,11 @@ export async function seedRolesAndPermissions(): Promise<void> {
   }
 
   seeded = true;
+}
+
+/**
+ * Reset the seeded flag - useful for testing
+ */
+export function resetSeededFlag(): void {
+  seeded = false;
 }

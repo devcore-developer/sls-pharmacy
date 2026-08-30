@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db, ensureDbReady } from "./db";
 import { PERMISSIONS, SYSTEM_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from "@/lib/permissions";
 import type { SystemRole, PermissionKey } from "@/lib/permissions";
 import { logAudit } from "./audit-repository";
@@ -35,6 +35,8 @@ export interface CreateRoleFormData {
 /* ------------------------------------------------------------------ */
 
 export async function getAllRoles(): Promise<RoleListItem[]> {
+  await ensureDbReady();
+  
   const roles = await db.roles.orderBy("name").toArray();
   const users = await db.users.toArray();
 
@@ -56,6 +58,8 @@ export async function getAllRoles(): Promise<RoleListItem[]> {
 }
 
 export async function getRoleById(id: string): Promise<RoleDetail | null> {
+  await ensureDbReady();
+  
   const role = await db.roles.get(id);
   if (!role) return null;
 
@@ -79,6 +83,8 @@ export async function getRoleById(id: string): Promise<RoleDetail | null> {
 }
 
 export async function getRolePermissions(roleId: string): Promise<PermissionKey[]> {
+  await ensureDbReady();
+  
   const rolePerms = await db.rolePermissions.where("roleId").equals(roleId).toArray();
   return rolePerms.map((rp) => rp.permissionKey as PermissionKey);
 }
@@ -92,10 +98,11 @@ export async function updateRolePermissions(
   permissionKeys: PermissionKey[],
   editorId: string
 ): Promise<{ success: boolean; error?: string }> {
+  await ensureDbReady();
+  
   const role = await db.roles.get(roleId);
   if (!role) return { success: false, error: "Role not found." };
 
-  // System roles can always have their permissions updated by an admin
   await db.transaction("rw", [db.rolePermissions, db.syncOperations], async () => {
     await db.rolePermissions.where("roleId").equals(roleId).delete();
     if (permissionKeys.length > 0) {
@@ -124,6 +131,8 @@ export async function createCustomRole(
   data: CreateRoleFormData,
   creatorId: string
 ): Promise<{ success: boolean; error?: string }> {
+  await ensureDbReady();
+  
   if (!data.name.trim()) return { success: false, error: "Role name is required." };
   if (!data.label.trim()) return { success: false, error: "Role display name is required." };
 

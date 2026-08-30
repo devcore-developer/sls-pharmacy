@@ -1,4 +1,4 @@
-import { db } from "@/lib/offline/db";
+import { db, ensureDbReady } from "@/lib/offline/db";
 
 const SESSION_DURATION_DAYS = 7;
 const SESSION_KEY = "sls_session_id";
@@ -19,12 +19,27 @@ function createExpiry(): Date {
   return d;
 }
 
+/**
+ * SINGLE SOURCE OF TRUTH: Checks if any administrator exists.
+ * This is the ONLY function that should determine if we're in "first run" mode.
+ */
+export async function isFirstRun(): Promise<boolean> {
+  // Ensure DB is fully open before checking
+  await ensureDbReady();
+  
+  // Direct count query - simple and reliable
+  const count = await db.users.count();
+  return count === 0;
+}
+
 export async function createSession(user: {
   id: string;
   username: string;
   roleName: string;
   permissions: string[];
 }): Promise<SessionData> {
+  await ensureDbReady();
+  
   const id = crypto.randomUUID();
   const now = new Date();
   const expiresAt = createExpiry();
@@ -48,6 +63,8 @@ export async function createSession(user: {
 
 export async function validateSession(): Promise<SessionData | null> {
   if (typeof window === "undefined") return null;
+  
+  await ensureDbReady();
 
   const sessionId = localStorage.getItem(SESSION_KEY);
   if (!sessionId) return null;
@@ -88,14 +105,12 @@ export async function validateSession(): Promise<SessionData | null> {
 
 export async function destroySession(): Promise<void> {
   if (typeof window === "undefined") return;
+  
+  await ensureDbReady();
+  
   const sessionId = localStorage.getItem(SESSION_KEY);
   if (sessionId) {
     await db.sessions.delete(sessionId).catch(() => {});
     localStorage.removeItem(SESSION_KEY);
   }
-}
-
-export async function isFirstRun(): Promise<boolean> {
-  const count = await db.users.count();
-  return count === 0;
 }

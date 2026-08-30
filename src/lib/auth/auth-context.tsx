@@ -6,6 +6,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 import type { SessionData } from "@/lib/auth/session";
@@ -15,6 +16,7 @@ import {
   destroySession,
   isFirstRun,
 } from "@/lib/auth/session";
+import { ensureDbReady } from "@/lib/offline/db";
 import { seedRolesAndPermissions } from "@/lib/offline/seed-roles-permissions";
 import {
   authenticateUser,
@@ -49,27 +51,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [firstRun, setFirstRun] = useState(false);
+  const initializedRef = useRef(false);
+  const refreshInProgressRef = useRef(false);
 
   const refreshSession = useCallback(async () => {
-    // Skip during SSR / static generation — IndexedDB not available
+    // Skip during SSR / static generation
     if (typeof window === "undefined") return;
 
+    // Prevent concurrent refresh calls (React Strict Mode, rapid navigation)
+    if (refreshInProgressRef.current) return;
+    refreshInProgressRef.current = true;
+
     setLoading(true);
+    
     try {
+      // CRITICAL: Ensure DB is fully open before ANY operations
+      await ensureDbReady();
+      
+      // Seed roles and permissions (idempotent)
       await seedRolesAndPermissions();
+      
+      // SINGLE SOURCE OF TRUTH: Check if admin exists
       const isFR = await isFirstRun();
-      setFirstRun(isFR);
-      if (!isFR) {
-        const s = await validateSession();
-        setSession(s);
-      } else {
-        setSession(null);
+      
+      // Only update state if not already initialized OR if this is the first time
+      // This prevents React Strict Mode from causing flickering
+      if (!initializedRef.current) {
+        initializedRef.current = true;
+        setFirstRun(isFR);
+        
+        if (!isFR) {
+          const s = await validateSession();
+          setSession(s);
+        } else {
+          setSession(null);
+        }
       }
     } catch (err) {
       console.error("Session validation failed:", err);
-      setSession(null);
+      // On error, don't assume firstRun - check if we can determine state
+      if (!initializedRef.current) {
+        initializedRef.current = true;
+        setSession(null);
+        // Don't set firstRun to true on error - that's dangerous
+        // Instead, keep it false and let user see login form
+        setFirstRun(false);
+      }
     } finally {
       setLoading(false);
+      refreshInProgressRef.current = false;
     }
   }, []);
 
@@ -80,6 +110,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (username: string, password: string) => {
       if (typeof window === "undefined") return { success: false, error: "Authentication not available." };
+
+      await ensureDbReady();
 
       const result = await authenticateUser(username, password);
       if (!result.success) return result;
@@ -92,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         roleName: result.roleName!,
         permissions,
       });
+      
       setSession(s);
       setFirstRun(false);
 
@@ -110,15 +143,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     const currentSession = session;
     if (currentSession) {
-      await logAudit({
-        userId: currentSession.userId,
-        action: "LOGOUT",
-        entityType: "session",
-        entityId: currentSession.id,
-      });
+      try {
+        await logAudit({
+          userId: currentSession.userId,
+          action: "LOGOUT",
+          entityType: "session",
+          entityId: currentSession.id,
+        });
+      } catch {
+        // Ignore audit log errors during logout
+      }
     }
     await destroySession();
     setSession(null);
+    // IMPORTANT: Do NOT set firstRun to true on logout
+    // firstRun should only be true when there are NO users at all
   }, [session]);
 
   const hasPermission = useCallback(

@@ -12,7 +12,7 @@ import { Check, X, ShieldCheck } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { loading, firstRun, session, login } = useAuth();
+  const { loading, firstRun, session, login, refreshSession } = useAuth();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -21,6 +21,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Redirect to dashboard if already has valid session
   useEffect(() => {
     if (!loading && session) {
       router.replace("/dashboard");
@@ -66,14 +67,23 @@ export default function LoginPage() {
         password,
       });
       if (result.success) {
+        // Refresh the auth state after creating admin
+        await refreshSession();
+        
         const loginResult = await login(username.trim(), password);
         if (loginResult.success) {
           router.push("/dashboard");
         } else {
           setError("Admin created but auto-login failed. Please sign in manually.");
+          // Refresh again to update firstRun state
+          await refreshSession();
         }
       } else {
         setError(result.error ?? "Failed to create administrator.");
+        // If "already exists" error, refresh to show login form
+        if (result.error?.includes("already exists")) {
+          await refreshSession();
+        }
       }
     } catch {
       setError("An error occurred. Please try again.");
@@ -93,8 +103,11 @@ export default function LoginPage() {
     );
   }
 
+  // Don't render anything while session is being redirected
   if (session) return null;
 
+  // CRITICAL: Only show setup if firstRun is true AND we're not loading
+  // This prevents flickering between setup and login forms
   const isSetup = firstRun && !session;
 
   return (
