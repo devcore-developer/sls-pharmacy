@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { OnlineStatusIndicator } from "@/components/shared/online-status-indicator";
+import { SyncStatusIndicator } from "@/components/shared/sync-status-indicator";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getPageTitle } from "@/lib/navigation";
 import { ROLE_LABELS } from "@/lib/permissions";
@@ -55,7 +55,7 @@ export function Header({ onMenuClick, className }: HeaderProps) {
       <div className="flex-1 md:hidden" />
 
       <div className="flex items-center gap-3 shrink-0">
-        <OnlineStatusIndicator />
+        <SyncStatusIndicator />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

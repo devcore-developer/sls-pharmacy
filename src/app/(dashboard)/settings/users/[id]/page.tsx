@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, Save, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -52,7 +52,7 @@ export default function EditUserPage() {
     });
   }, [params.id]);
 
-  async function checkProtection(newRoleId?: string) {
+  const checkProtection = useCallback(async (newRoleId?: string) => {
     if (!user) return;
     const targetRoleId = newRoleId || roleId;
     if (user.roleId !== targetRoleId) {
@@ -64,9 +64,9 @@ export default function EditUserPage() {
     } else {
       setProtectionWarning("");
     }
-  }
+  }, [user, roleId, isActive]);
 
-  useEffect(() => { checkProtection(); }, [roleId, isActive]);
+  useEffect(() => { checkProtection(); }, [checkProtection]);
 
   async function handleSave() {
     if (!user) return;

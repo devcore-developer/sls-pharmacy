@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { ScrollText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,13 +36,12 @@ export default function AuditPage() {
     getAuditLogUsers().then(setAuditUsers);
   }, []);
 
-  useEffect(() => {
+  const loadLogs = useCallback((offset?: number) => {
+    const effectiveOffset = offset ?? 0;
     setLoading(true);
-    setPage(0);
-    loadLogs();
-  }, [filterUser, filterAction, dateFrom, dateTo]);
-
-  function loadLogs(offset = 0) {
+    if (effectiveOffset === 0) {
+      setPage(0);
+    }
     getAuditLogs(
       {
         userId: filterUser !== "__all__" ? filterUser : undefined,
@@ -50,9 +49,9 @@ export default function AuditPage() {
         dateFrom: dateFrom ? new Date(dateFrom) : null,
         dateTo: dateTo ? new Date(dateTo) : null,
       },
-      { limit: PAGE_SIZE, offset }
+      { limit: PAGE_SIZE, offset: effectiveOffset }
     ).then((data) => {
-      if (offset === 0) {
+      if (effectiveOffset === 0) {
         setLogs(data.items);
       } else {
         setLogs((prev) => [...prev, ...data.items]);
@@ -60,7 +59,11 @@ export default function AuditPage() {
       setTotal(data.total);
       setLoading(false);
     });
-  }
+  }, [filterUser, filterAction, dateFrom, dateTo]);
+
+  useEffect(() => {
+    loadLogs();
+  }, [loadLogs]);
 
   function loadMore() {
     const nextPage = page + 1;

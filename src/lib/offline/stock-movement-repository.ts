@@ -8,6 +8,7 @@ import type {
   MovementFilters,
 } from "@/types";
 import { logOperation } from "./sync-operations";
+import { logAudit } from "./audit-repository";
 import { getDeviceId } from "./device-id";
 import { getMovementDirection, getMovementTypeLabel } from "./stock-utils";
 import { getDateRange, isDateInRange } from "@/lib/date-utils";
@@ -146,6 +147,14 @@ export async function createAdjustment(params: {
     }
   );
 
+  await logAudit({
+    userId: params.userId || "",
+    action: "STOCK_ADJUSTED",
+    entityType: "batch",
+    entityId: params.batchId,
+    metadata: { type: movementType, quantity: params.quantity, reason: params.reason },
+  });
+
   return { success: true };
 }
 
@@ -201,7 +210,7 @@ export async function getStockMovements(
     filters.dateTo ?? undefined
   );
 
-  let collection = db.stockMovements.orderBy("createdAt").reverse();
+  const collection = db.stockMovements.orderBy("createdAt").reverse();
 
   let movements = await collection.toArray();
 

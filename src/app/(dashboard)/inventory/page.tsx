@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Package,
   SlidersHorizontal,
@@ -102,23 +102,24 @@ export default function InventoryPage() {
   );
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const d = await getInventoryBatchData();
-      setData(d as typeof data);
+      setData(d as unknown as typeof data);
     } finally {
       setLoading(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    let rows = data.rows.filter((row) => {
+    const rows = data.rows.filter((row) => {
       if (filters.expiry !== "all" && row.expiryStatus !== filters.expiry)
         return false;
       if (

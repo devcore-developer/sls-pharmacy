@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth/auth-context";
 import { PageHeader } from "@/components/shared/page-header";
 import { RequirePermission } from "@/components/shared/require-permission";
-import { Users, Shield, ScrollText, ArrowRight } from "lucide-react";
+import { Users, Shield, ScrollText, RefreshCw, Database, ShieldCheck, Info, ArrowRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 const settingCards = [
@@ -28,6 +28,34 @@ const settingCards = [
     description: "View immutable history of system actions.",
     icon: ScrollText,
     permissions: ["users.view"] as const,
+  },
+  {
+    href: "/settings/sync",
+    label: "Sync Center",
+    description: "Monitor and manage offline data synchronization.",
+    icon: RefreshCw,
+    permissions: ["settings.view"] as const,
+  },
+  {
+    href: "/settings/backup",
+    label: "Backup & Restore",
+    description: "Export and import local pharmacy data safely.",
+    icon: Database,
+    permissions: ["settings.view"] as const,
+  },
+  {
+    href: "/settings/data-integrity",
+    label: "Data Integrity",
+    description: "Check for broken references and stock discrepancies.",
+    icon: ShieldCheck,
+    permissions: ["settings.view"] as const,
+  },
+  {
+    href: "/settings/about",
+    label: "About",
+    description: "Application version, device info, and system status.",
+    icon: Info,
+    permissions: ["settings.view"] as const,
   },
 ];
 

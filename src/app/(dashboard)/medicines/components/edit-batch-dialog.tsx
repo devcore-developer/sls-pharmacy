@@ -11,7 +11,7 @@ import {
 import { BatchForm } from "./batch-form";
 import { updateBatch } from "@/lib/offline/batch-repository";
 import { getAllCartonsSimple } from "@/lib/offline/carton-repository";
-import type { BatchWithCarton, CartonItem, BatchFormData } from "@/types";
+import type { BatchWithCarton, BatchFormData } from "@/types";
 
 interface EditBatchDialogProps {
   batch: BatchWithCarton | null;
@@ -27,7 +27,7 @@ export function EditBatchDialog({
   onSaved,
 }: EditBatchDialogProps) {
   const [submitting, setSubmitting] = useState(false);
-  const [cartons, setCartons] = useState<CartonItem[]>([]);
+  const [cartons, setCartons] = useState<Array<{ id: string; code: string; label: string }>>([]);
 
   useEffect(() => {
     if (open) {

@@ -51,6 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [firstRun, setFirstRun] = useState(false);
 
   const refreshSession = useCallback(async () => {
+    // Skip during SSR / static generation — IndexedDB not available
+    if (typeof window === "undefined") return;
+
     setLoading(true);
     try {
       await seedRolesAndPermissions();
@@ -76,12 +79,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (username: string, password: string) => {
+      if (typeof window === "undefined") return { success: false, error: "Authentication not available." };
+
       const result = await authenticateUser(username, password);
       if (!result.success) return result;
 
-      const permissions = await getUserPermissions(result.user!.id);
+      const userId = result.user!.id as string;
+      const permissions = await getUserPermissions(userId);
       const s = await createSession({
-        id: result.user!.id,
+        id: userId,
         username: result.user!.username,
         roleName: result.roleName!,
         permissions,
@@ -90,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setFirstRun(false);
 
       await logAudit({
-        userId: result.user!.id,
+        userId: userId,
         action: "LOGIN",
         entityType: "session",
         entityId: s.id,
@@ -102,12 +108,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    if (session) {
+    const currentSession = session;
+    if (currentSession) {
       await logAudit({
-        userId: session.userId,
+        userId: currentSession.userId,
         action: "LOGOUT",
         entityType: "session",
-        entityId: session.id,
+        entityId: currentSession.id,
       });
     }
     await destroySession();

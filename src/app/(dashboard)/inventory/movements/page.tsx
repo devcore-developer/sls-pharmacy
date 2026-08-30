@@ -36,7 +36,7 @@ import {
 } from "@/lib/offline/stock-movement-repository";
 import { formatDate } from "@/lib/utils";
 import { MovementDetailSheet } from "../components/movement-detail-sheet";
-import { MovementFilters as MovementFiltersPanel } from "../components/movement-filters";
+import { MovementFiltersComponent as MovementFiltersPanel } from "../components/movement-filters";
 import type { MovementFilters, StockMovementListItem } from "@/types";
 import { DEFAULT_MOVEMENT_FILTERS } from "@/types";
 
@@ -321,9 +321,7 @@ export default function StockMovementsPage() {
           </SheetHeader>
           <MovementFiltersPanel
             filters={filters}
-            onChange={setFilters}
-            onClear={clearAll}
-            activeCount={activeCount}
+            onFiltersChange={setFilters}
           />
         </SheetContent>
       </Sheet>

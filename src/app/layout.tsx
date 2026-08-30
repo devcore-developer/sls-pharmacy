@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { AuthProvider } from "@/lib/auth/auth-context";
+import { ErrorBoundary } from "@/components/shared/error-boundary";
 import "./globals.css";
 
 const inter = Inter({
@@ -20,6 +21,11 @@ export const metadata: Metadata = {
   title: "SLS Pharmacy",
   description: "Charity Pharmacy Management System",
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "SLS Pharmacy",
+  },
 };
 
 export const viewport: Viewport = {
@@ -36,8 +42,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" dir="ltr" suppressHydrationWarning>
+      <head>
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+      </head>
       <body className={`${inter.variable} ${ibmPlexArabic.variable} font-sans antialiased`}>
-        <AuthProvider>{children}</AuthProvider>
+        <ErrorBoundary>
+          <AuthProvider>{children}</AuthProvider>
+        </ErrorBoundary>
       </body>
     </html>
   );

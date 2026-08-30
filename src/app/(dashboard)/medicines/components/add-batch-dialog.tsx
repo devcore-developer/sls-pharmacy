@@ -12,7 +12,7 @@ import { BatchForm } from "./batch-form";
 import { createBatch } from "@/lib/offline/batch-repository";
 import { getAllCartonsSimple } from "@/lib/offline/carton-repository";
 import { useEffect } from "react";
-import type { CartonItem, BatchFormData } from "@/types";
+import type { BatchFormData } from "@/types";
 
 interface AddBatchDialogProps {
   open: boolean;
@@ -28,7 +28,7 @@ export function AddBatchDialog({
   onSaved,
 }: AddBatchDialogProps) {
   const [submitting, setSubmitting] = useState(false);
-  const [cartons, setCartons] = useState<CartonItem[]>([]);
+  const [cartons, setCartons] = useState<Array<{ id: string; code: string; label: string }>>([]);
 
   useEffect(() => {
     if (open) {

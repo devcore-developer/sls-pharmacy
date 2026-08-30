@@ -1,5 +1,3 @@
-// src/lib/offline/stock-receipt-repository.ts
-
 import type {
   ReceiptListItem,
   ReceiptDetail,
@@ -7,6 +5,7 @@ import type {
   ReceiptSourceType,
 } from "@/types";
 import { logOperation } from "./sync-operations";
+import { logAudit } from "./audit-repository";
 import { getDeviceId } from "./device-id";
 
 async function getDb() {
@@ -174,7 +173,6 @@ async function ensureCarton(cartonId: string | undefined, cartonData: {
   name?: string;
   categoryId?: string;
   location?: string;
-  description?: string;
 } | null): Promise<string | undefined> {
   if (!cartonId && !cartonData?.code) return undefined;
   if (cartonId) return cartonId;
@@ -185,10 +183,10 @@ async function ensureCarton(cartonId: string | undefined, cartonData: {
   await db.cartons.add({
     id,
     code: cartonData!.code!.trim(),
-    name: cartonData!.name?.trim() || cartonData!.code!.trim(),
-    categoryId: cartonData!.categoryId || undefined,
-    location: cartonData!.location?.trim() || "",
-    description: cartonData!.description?.trim() || undefined,
+    label: cartonData!.name?.trim() || cartonData!.code!.trim(),
+    sectionId: cartonData!.categoryId || undefined,
+    locationNote: cartonData!.location?.trim() || undefined,
+    isActive: true,
     createdAt: now,
     updatedAt: now,
   });
@@ -222,6 +220,7 @@ export async function confirmReceipt(params: {
   responsiblePerson: string;
   notes: string;
   items: ReceiptItemInput[];
+  userId?: string;
 }): Promise<{ success: boolean; receiptId?: string; receiptNumber?: string; error?: string }> {
   const db = await getDb();
   const deviceId = getDeviceId();
@@ -246,7 +245,6 @@ export async function confirmReceipt(params: {
         db.syncOperations,
       ],
       async () => {
-        // 1. Create receipt
         await db.stockReceipts.add({
           id: receiptId,
           receiptNumber,
@@ -259,11 +257,21 @@ export async function confirmReceipt(params: {
           updatedAt: now,
         });
 
-        // 2. Process each item
+        await db.syncOperations.add({
+          operationId: crypto.randomUUID(),
+          deviceId,
+          entityType: "stockReceipt",
+          entityId: receiptId,
+          operationType: "create",
+          payload: { receiptNumber, date: params.date, sourceType: params.sourceType } as unknown as Record<string, unknown>,
+          createdAt: now,
+          syncStatus: "pending",
+          retryCount: 0,
+        });
+
         for (const item of params.items) {
           if (item.quantity <= 0) continue;
 
-          // Find or create batch
           let batchId: string;
           if (item.useExistingBatch) {
             const existingId = await findExistingBatch(
@@ -275,7 +283,6 @@ export async function confirmReceipt(params: {
               throw new Error(`Batch ${item.batchNumber} not found for update.`);
             }
             batchId = existingId;
-            // Add quantity to existing batch
             const batch = await db.batches.get(batchId);
             if (batch) {
               await db.batches.update(batchId, {
@@ -284,7 +291,6 @@ export async function confirmReceipt(params: {
               });
             }
           } else {
-            // Create new batch
             batchId = crypto.randomUUID();
             const cartonId = await ensureCarton(
               item.cartonId || undefined,
@@ -302,7 +308,6 @@ export async function confirmReceipt(params: {
             });
           }
 
-          // Create receipt item
           const receiptItemId = crypto.randomUUID();
           await db.stockReceiptItems.add({
             id: receiptItemId,
@@ -316,7 +321,6 @@ export async function confirmReceipt(params: {
             updatedAt: now,
           });
 
-          // Create DONATION_IN stock movement
           const movementId = crypto.randomUUID();
           await db.stockMovements.add({
             id: movementId,
@@ -329,19 +333,6 @@ export async function confirmReceipt(params: {
             notes: `Receipt: ${receiptNumber}`,
             createdAt: now,
             deviceId,
-          });
-
-          // Sync operations
-          await db.syncOperations.add({
-            operationId: crypto.randomUUID(),
-            deviceId,
-            entityType: "stockReceipt",
-            entityId: receiptId,
-            operationType: "create",
-            payload: { receiptNumber, date: params.date, sourceType: params.sourceType } as unknown as Record<string, unknown>,
-            createdAt: now,
-            syncStatus: "pending",
-            retryCount: 0,
           });
 
           await db.syncOperations.add({
@@ -358,6 +349,14 @@ export async function confirmReceipt(params: {
         }
       }
     );
+
+    await logAudit({
+      userId: params.userId || "",
+      action: "RECEIPT_CREATED",
+      entityType: "stockReceipt",
+      entityId: receiptId,
+      metadata: { receiptNumber, itemCount: params.items.length },
+    });
 
     return { success: true, receiptId, receiptNumber };
   } catch (err) {

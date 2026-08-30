@@ -52,7 +52,7 @@ export async function hashPassword(password: string): Promise<HashedPassword> {
   const bits = await deriveKey(password, saltBuf);
   return {
     hash: bufferToBase64(bits),
-    salt: btoa(String.fromCharCode(...saltView)),
+    salt: Array.from(saltView, (b) => String.fromCharCode(b)).join(""),
     algorithm: `PBKDF2-${HASH_ALGORITHM}`,
     iterations: PBKDF2_ITERATIONS,
   };

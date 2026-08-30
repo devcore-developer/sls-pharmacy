@@ -13,6 +13,7 @@ import type {
   SectionCartonItem,
 } from "@/types";
 import { logOperation } from "./sync-operations";
+import { logAudit } from "./audit-repository";
 
 async function getDb() {
   const { db } = await import("./db");
@@ -377,13 +378,11 @@ export async function searchCartonContents(query: string): Promise<CartonSearchR
 
   const q = query.toLowerCase();
 
-  // Search by carton code/label first
   const allCartons = await db.cartons.filter((c) => c.isActive !== false).toArray();
   const matchedCartonIds = allCartons
     .filter((c) => c.code.toLowerCase().includes(q) || c.label.toLowerCase().includes(q))
     .map((c) => c.id!);
 
-  // Search by medicine name in batches
   const allBatches = await db.batches.filter((b) => !b.archivedAt && !!b.cartonId).toArray();
   const medIds = [...new Set(allBatches.map((b) => b.medicineId))];
   const meds = medIds.length > 0 ? await db.medicines.where("id").anyOf(medIds).toArray() : [];
@@ -536,7 +535,6 @@ export async function getBatchLocationHistory(batchId: string): Promise<Location
     createdAt: t.createdAt,
   }));
 
-  // Add initial assignment if no transfers exist but batch has carton
   const batch = await db.batches.get(batchId);
   if (batch?.cartonId && transfers.length === 0) {
     const carton = await db.cartons.get(batch.cartonId);
@@ -554,7 +552,8 @@ export async function getBatchLocationHistory(batchId: string): Promise<Location
 
 export async function assignBatchToCarton(
   batchId: string,
-  cartonId: string
+  cartonId: string,
+  userId?: string
 ): Promise<{ success: boolean; error?: string }> {
   const db = await getDb();
   const carton = await db.cartons.get(cartonId);
@@ -579,13 +578,12 @@ export async function assignBatchToCarton(
     });
   });
 
-  await logOperation({
-    entityType: "batchCartonAssignment",
+  await logAudit({
+    userId: userId || "",
+    action: "BATCH_MOVED",
+    entityType: "batch",
     entityId: batchId,
-    operationType: "update",
-    payload: { batchId, cartonId },
-    deviceId,
-  });
+    metadata: { toCartonId: cartonId },  });
 
   return { success: true };
 }
@@ -593,7 +591,8 @@ export async function assignBatchToCarton(
 export async function moveBatchCarton(
   batchId: string,
   toCartonId: string,
-  note?: string
+  note?: string,
+  userId?: string
 ): Promise<{ success: boolean; error?: string }> {
   const db = await getDb();
   const batch = await db.batches.get(batchId);
@@ -609,6 +608,7 @@ export async function moveBatchCarton(
 
   const now = new Date();
   const deviceId = await getDeviceId();
+  const auditMeta = { fromCartonId, toCartonId, note: note || undefined };
 
   await db.transaction("rw", [db.batches, db.batchLocationTransfers, db.syncOperations], async () => {
     await db.batches.update(batchId, { cartonId: toCartonId, updatedAt: now });
@@ -623,17 +623,16 @@ export async function moveBatchCarton(
     });
   });
 
-  await logOperation({
-    entityType: "batchLocationTransfer",
+  await logAudit({
+    userId: userId || "",
+    action: "BATCH_MOVED",
+    entityType: "batch",
     entityId: batchId,
-    operationType: "create",
-    payload: { batchId, fromCartonId, toCartonId, note },
-    deviceId,
+    metadata: auditMeta,
   });
 
   return { success: true };
 }
-
 /* ------------------------------------------------------------------ */
 /*  Warehouse Overview                                                */
 /* ------------------------------------------------------------------ */

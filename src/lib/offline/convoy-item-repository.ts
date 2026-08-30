@@ -1,6 +1,7 @@
 import type { ConvoyItemRecord } from "./db";
 import type { ConvoyItem, BatchAvailability, ReconciliationStatus } from "@/types";
 import { logOperation } from "./sync-operations";
+import { logAudit } from "./audit-repository";
 import { getDeviceId } from "./device-id";
 
 async function getDb() {
@@ -85,19 +86,24 @@ export async function getAvailableBatchesForMedicine(
   const batches = await db.batches.where("medicineId").equals(medicineId).filter((b) => !b.archivedAt).toArray();
   if (batches.length === 0) return [];
 
-  const batchIds = batches.map((b) => b.id!);
-  const movements = batchIds.length > 0
-    ? await db.stockMovements.where("batchId").anyOf(batchIds).filter((m) => m.type === "CONVOY_OUT").toArray()
-    : [];
-  const allocatedByBatch = new Map<string, number>();
-  for (const m of movements) {
-    if (m.batchId) allocatedByBatch.set(m.batchId, (allocatedByBatch.get(m.batchId) || 0) + m.quantity);
-  }
+  const draftConvoys = await db.convoys.where("status").equals("DRAFT").toArray();
+  const otherDraftIds = draftConvoys
+    .filter((c) => c.id !== excludeConvoyId)
+    .map((c) => c.id!);
 
-  if (excludeConvoyId) {
-    const currentItems = await db.convoyItems.where("convoyId").equals(excludeConvoyId).toArray();
-    for (const item of currentItems) {
-      if (item.batchId) allocatedByBatch.set(item.batchId, (allocatedByBatch.get(item.batchId) || 0) + item.quantityTaken);
+  const pendingByBatch = new Map<string, number>();
+  if (otherDraftIds.length > 0) {
+    const otherDraftItems = await db.convoyItems
+      .where("convoyId")
+      .anyOf(otherDraftIds)
+      .toArray();
+    for (const item of otherDraftItems) {
+      if (item.batchId) {
+        pendingByBatch.set(
+          item.batchId,
+          (pendingByBatch.get(item.batchId) || 0) + item.quantityTaken
+        );
+      }
     }
   }
 
@@ -107,7 +113,7 @@ export async function getAvailableBatchesForMedicine(
       batchId: b.id!,
       batchNumber: b.batchNumber,
       expiryDate: b.expiryDate,
-      availableQuantity: b.quantity - (allocatedByBatch.get(b.id!) || 0),
+      availableQuantity: b.quantity - (pendingByBatch.get(b.id!) || 0),
     }))
     .filter((b) => b.availableQuantity > 0);
 }
@@ -153,7 +159,8 @@ export async function removeConvoyItem(itemId: string): Promise<void> {
 
 export async function dispenseMedicine(
   convoyItemId: string,
-  delta: number
+  delta: number,
+  userId?: string
 ): Promise<{ success: boolean; error?: string }> {
   const db = await getDb();
   const deviceId = getDeviceId();
@@ -179,6 +186,15 @@ export async function dispenseMedicine(
       payload: { type: movementType, quantity: Math.abs(delta), newDispensed }, deviceId,
     });
   });
+
+  await logAudit({
+    userId: userId || "",
+    action: "CONVOY_DISPENSED",
+    entityType: "convoyItem",
+    entityId: convoyItemId,
+    metadata: { delta: Math.abs(delta), newDispensed },
+  });
+
   return { success: true };
 }
 
@@ -231,7 +247,8 @@ export async function updateItemReconciliation(
 }
 
 export async function completeReconciliation(
-  convoyId: string
+  convoyId: string,
+  userId?: string
 ): Promise<{ success: boolean; error?: string }> {
   const db = await getDb();
   const deviceId = getDeviceId();
@@ -272,6 +289,18 @@ export async function completeReconciliation(
             quantity: item.quantityReturned,
             createdAt: now,
             deviceId,
+          });
+
+          await logAudit({
+            userId: userId || "",
+            action: "CONVOY_RETURNED",
+            entityType: "convoyItem",
+            entityId: item.id!,
+            metadata: {
+              convoyId,
+              batchId: item.batchId,
+              quantity: item.quantityReturned,
+            },
           });
         }
         await db.convoyItems.update(item.id!, {

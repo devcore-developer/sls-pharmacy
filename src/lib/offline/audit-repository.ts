@@ -85,7 +85,7 @@ export async function getAuditLogs(
   filters?: AuditLogFilters,
   opts?: { limit?: number; offset?: number }
 ): Promise<{ items: AuditLogEntry[]; total: number }> {
-  let collection = db.auditLogs.orderBy("createdAt").reverse();
+  const collection = db.auditLogs.orderBy("createdAt").reverse();
 
   let all = await collection.toArray();
 

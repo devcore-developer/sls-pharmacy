@@ -68,7 +68,7 @@ export async function getConvoyDetail(id: string): Promise<ConvoyDetail | null> 
     responsiblePerson: convoy.responsiblePerson,
     notes: convoy.notes,
     status: convoy.status as ConvoyDetail["status"],
-    reconciliationStatus: getConvoyReconciliationStatus(items), // ✅ كانت ناقصة
+    reconciliationStatus: getConvoyReconciliationStatus(items),
     createdAt: convoy.createdAt,
     updatedAt: convoy.updatedAt,
     completedAt: convoy.completedAt ?? null,
@@ -160,14 +160,9 @@ export async function startConvoy(
       };
     }
 
-    // Calculate available: batch qty minus CONVOY_OUT from other convoys
-    const movements = await db.stockMovements
-      .where("batchId")
-      .equals(item.batchId)
-      .filter((m) => m.type === "CONVOY_OUT")
-      .toArray();
-    const allocated = movements.reduce((s, m) => s + m.quantity, 0);
-    const available = batch.quantity - allocated;
+    // FIX: batch.quantity already reflects all previous CONVOY_OUT deductions.
+    // No need to subtract allocated movements again.
+    const available = batch.quantity;
 
     if (item.quantityTaken > available) {
       const med = await db.medicines.get(item.medicineId);

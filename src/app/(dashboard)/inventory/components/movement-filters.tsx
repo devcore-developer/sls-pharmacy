@@ -118,3 +118,4 @@ export function MovementFiltersComponent({ filters, onFiltersChange }: Props) {
     </div>
   );
 }
+export type { MovementFilters };

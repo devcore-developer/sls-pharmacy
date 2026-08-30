@@ -143,10 +143,22 @@ export const ROUTE_PERMISSIONS: Record<string, PermissionKey[]> = {
   "/inventory/warehouse": ["carton.view"],
   "/convoys": ["convoy.view"],
   "/reports": ["reports.view"],
+  "/reports/inventory": ["reports.view"],
+  "/reports/expiry": ["reports.view"],
+  "/reports/movements": ["reports.view"],
+  "/reports/convoys": ["reports.view"],
+  "/reports/receiving": ["reports.view"],
+  "/reports/dispensing": ["reports.view"],
+  "/reports/returns": ["reports.view"],
+  "/reports/medicine-activity": ["reports.view"],
   "/settings": ["settings.view"],
   "/settings/users": ["users.view"],
   "/settings/roles": ["roles.view"],
   "/settings/audit": ["users.view"],
+  "/settings/sync": ["settings.view"],
+  "/settings/backup": ["settings.view"],
+  "/settings/data-integrity": ["settings.view"],
+  "/settings/about": ["settings.view"],
 };
 
 export function getRequiredPermission(pathname: string): PermissionKey[] | null {

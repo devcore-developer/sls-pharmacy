@@ -1,10 +1,7 @@
-// src/lib/offline/inventory-repository.ts
-
 import type { BatchRecord, CategoryRecord, CartonRecord } from "./db";
 import type {
   InventoryBatchRow,
   CategoryItem,
-  CartonItem,
   ExpiryStatus,
   StockAvailability,
   DashboardStats,
@@ -32,7 +29,7 @@ export async function getInventoryBatchData(): Promise<{
   rows: InventoryBatchRow[];
   categories: CategoryItem[];
   pharmacologicalClasses: PharmacologicalClassItem[];
-  cartons: CartonItem[];
+  cartons: Array<{ id: string; code: string; label: string }>;
 }> {
   const db = await getDb();
 
@@ -48,7 +45,7 @@ export async function getInventoryBatchData(): Promise<{
     ...new Set(activeBatches.filter((b) => b.cartonId).map((b) => b.cartonId!)),
   ];
 
-  const [medicines, cartons, medCats, medClasses, allMovements] = await Promise.all([
+  const [medicines, cartonRecords, medCats, medClasses, allMovements] = await Promise.all([
     medIds.length > 0
       ? db.medicines.where("id").anyOf(medIds).toArray()
       : [],
@@ -68,7 +65,12 @@ export async function getInventoryBatchData(): Promise<{
   ]);
 
   const medMap = new Map(medicines.map((m) => [m.id!, m]));
-  const cartonMap = new Map(cartons.map((c) => [c.id!, c]));
+  const cartonMap = new Map(cartonRecords.map((c) => [c.id!, c]));
+
+  // Build section lookup for cartons
+  const sectionIds = [...new Set(cartonRecords.filter((c) => c.sectionId).map((c) => c.sectionId!))];
+  const sections = sectionIds.length > 0 ? await db.storageSections.where("id").anyOf(sectionIds).toArray() : [];
+  const sectionMap = new Map(sections.map((s) => [s.id!, s.name]));
 
   const catIds = [...new Set(medCats.map((mc) => mc.categoryId))];
   const classIds = [
@@ -112,6 +114,8 @@ export async function getInventoryBatchData(): Promise<{
     const carton = b.cartonId ? cartonMap.get(b.cartonId) : null;
     const expiryStatus: ExpiryStatus = getExpiryStatus(b.expiryDate);
     const stockStatus: StockAvailability = getStockAvailability(b.quantity);
+    const sectionId = carton?.sectionId ?? null;
+    const sectionName = sectionId ? (sectionMap.get(sectionId) ?? null) : null;
 
     return {
       medicineId: b.medicineId,
@@ -121,7 +125,9 @@ export async function getInventoryBatchData(): Promise<{
       batchNumber: b.batchNumber,
       cartonId: b.cartonId ?? null,
       cartonCode: carton?.code ?? null,
-      cartonName: carton?.name ?? null,
+      cartonLabel: carton?.label ?? null,
+      sectionId,
+      sectionName,
       currentQuantity: b.quantity,
       expiryDate: b.expiryDate,
       expiryStatus,
@@ -148,8 +154,7 @@ export async function getInventoryBatchData(): Promise<{
     cartons: allCartons.map((c) => ({
       id: c.id!,
       code: c.code,
-      name: c.name,
-      location: c.location,
+      label: c.label,
     })),
   };
 }

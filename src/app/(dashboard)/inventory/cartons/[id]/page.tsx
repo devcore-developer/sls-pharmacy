@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ArrowLeft, Pencil, Package, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,7 @@ export default function CartonDetailPage() {
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const [moveBatch, setMoveBatch] = useState<CartonContentItem | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     const [detail, cont] = await Promise.all([
       getCartonById(cartonId),
@@ -35,11 +35,11 @@ export default function CartonDetailPage() {
     setCarton(detail);
     setContents(cont);
     setLoading(false);
-  };
+  }, [cartonId]);
 
   useEffect(() => {
     loadData();
-  }, [cartonId]);
+  }, [loadData]);
 
   const handleMoveBatch = async (batchId: string, toCartonId: string, note?: string) => {
     const result = await moveBatchCarton(batchId, toCartonId, note);

@@ -1,147 +1,142 @@
 "use client";
 
-import { useState } from "react";
-import { MoreHorizontal, Pencil, Archive, History, MapPin, ArrowRight } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { useState, useEffect } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/shared/status-badge";
-import { BatchLocationDialog } from "./batch-location-dialog";
-import { BatchHistoryDialog } from "./batch-history-dialog";
-import { getExpiryStatus } from "@/lib/offline/stock-utils";
-import type { BatchWithCarton } from "@/types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { BatchFormData } from "@/types";
 
-interface BatchTableProps {
-  batches: BatchWithCarton[];
-  onEdit: (b: BatchWithCarton) => void;
-  onArchive: (b: BatchWithCarton) => void;
+interface BatchFormProps {
+  initialData?: BatchFormData;
+  cartons: Array<{ id: string; code: string; label: string }>;
+  onSubmit: (data: BatchFormData) => Promise<void>;
+  onCancel: () => void;
+  isSubmitting: boolean;
+  submitLabel: string;
 }
 
-export function BatchTable({ batches, onEdit, onArchive }: BatchTableProps) {
-  const [historyBatch, setHistoryBatch] = useState<BatchWithCarton | null>(null);
-  const [locationBatch, setLocationBatch] = useState<BatchWithCarton | null>(null);
+const EMPTY_FORM: BatchFormData = {
+  batchNumber: "",
+  quantity: "",
+  expiryDate: "",
+  cartonId: "",
+};
 
-  if (batches.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground text-center py-6">
-        No batches recorded for this medicine.
-      </p>
-    );
+export function BatchForm({
+  initialData,
+  cartons,
+  onSubmit,
+  onCancel,
+  isSubmitting,
+  submitLabel,
+}: BatchFormProps) {
+  const [data, setData] = useState<BatchFormData>(initialData ?? EMPTY_FORM);
+
+  useEffect(() => {
+    if (initialData) setData(initialData);
+  }, [initialData]);
+
+  function update(field: keyof BatchFormData, value: string) {
+    setData((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await onSubmit(data);
   }
 
   return (
-    <>
-      <div className="overflow-x-auto -mx-6">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="pl-6">Batch</TableHead>
-              <TableHead className="text-right">Quantity</TableHead>
-              <TableHead>Expiry</TableHead>
-              <TableHead>Location</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="w-12 pr-6"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {batches.map((b) => {
-              const status = b.archivedAt ? "archived" : getExpiryStatus(b.expiryDate);
-              return (
-                <TableRow key={b.id}>
-                  <TableCell className="pl-6 font-medium text-foreground">{b.batchNumber}</TableCell>
-                  <TableCell className="text-right tabular-nums">{b.quantity}</TableCell>
-                  <TableCell className="text-muted-foreground text-xs">
-                    {b.expiryDate.toLocaleDateString("en-GB", {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </TableCell>
-                  <TableCell>
-                    {b.isUnassigned ? (
-                      <span className="text-xs text-muted-foreground">Unassigned</span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setLocationBatch(b)}
-                        className="text-xs text-primary hover:underline flex items-center gap-1"
-                      >
-                        <MapPin className="h-3 w-3" />
-                        {b.cartonCode || "—"}
-                      </button>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={status} />
-                  </TableCell>
-                  <TableCell className="pr-6">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setLocationBatch(b)}>
-                          <MapPin className="mr-2 h-4 w-4" />
-                          Location
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setHistoryBatch(b)}>
-                          <History className="mr-2 h-4 w-4" />
-                          History
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => onEdit(b)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => onArchive(b)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Archive className="mr-2 h-4 w-4" />
-                          Archive
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="batchNumber" className="text-xs font-medium">
+            Batch / Lot Number
+          </Label>
+          <Input
+            id="batchNumber"
+            value={data.batchNumber}
+            onChange={(e) => update("batchNumber", e.target.value)}
+            placeholder="e.g. ABC123"
+            disabled={isSubmitting}
+            className="text-sm h-9"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="batchExpiry" className="text-xs font-medium">
+            Expiry Date
+          </Label>
+          <Input
+            id="batchExpiry"
+            type="date"
+            value={data.expiryDate}
+            onChange={(e) => update("expiryDate", e.target.value)}
+            disabled={isSubmitting}
+            className="text-sm h-9"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="batchQty" className="text-xs font-medium">
+            Quantity
+          </Label>
+          <Input
+            id="batchQty"
+            type="number"
+            min={1}
+            value={data.quantity}
+            onChange={(e) => update("quantity", e.target.value)}
+            placeholder="Units"
+            disabled={isSubmitting}
+            className="text-sm h-9"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="batchCarton" className="text-xs font-medium">
+            Carton
+          </Label>
+          <Select
+            value={data.cartonId || "__none__"}
+            onValueChange={(v) => update("cartonId", v === "__none__" ? "" : v)}
+            disabled={isSubmitting}
+          >
+            <SelectTrigger className="text-sm h-9">
+              <SelectValue placeholder="None" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">No Carton</SelectItem>
+              {cartons.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.code} — {c.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <BatchLocationDialog
-        batch={locationBatch}
-        open={locationBatch !== null}
-        onOpenChange={(open) => {
-          if (!open) setLocationBatch(null);
-        }}
-      />
-
-      <BatchHistoryDialog
-        batchId={historyBatch?.id ?? null}
-        batchNumber={historyBatch?.batchNumber ?? null}
-        open={historyBatch !== null}
-        onOpenChange={(open) => {
-          if (!open) setHistoryBatch(null);
-        }}
-      />
-    </>
+      <div className="flex justify-end gap-2 pt-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onCancel}
+          disabled={isSubmitting}
+        >
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={isSubmitting}>
+          {isSubmitting ? "Saving..." : submitLabel}
+        </Button>
+      </div>
+    </form>
   );
 }
