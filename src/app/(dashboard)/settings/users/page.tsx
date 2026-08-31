@@ -4,35 +4,50 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Search, UserCheck, UserX, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
 import { LoadingState } from "@/components/shared/loading-state";
 import { EmptyState } from "@/components/shared/empty-state";
 import { RequirePermission } from "@/components/shared/require-permission";
-import { getAllUsers, type UserListItem } from "@/lib/offline/user-repository";
 import { formatDate } from "@/lib/utils";
-import { ROLE_LABELS } from "@/lib/permissions";
+
+interface UserItem {
+  id: string;
+  name: string;
+  email: string;
+  username: string;
+  roleName: string;
+  roleLabel: string;
+  roleId: string;
+  isActive: boolean;
+  lastActivityAt: Date;
+  createdAt: Date;
+}
 
 export default function UsersPage() {
   const router = useRouter();
-  const [users, setUsers] = useState<UserListItem[]>([]);
+  const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    getAllUsers().then((data) => {
-      setUsers(data);
-      setLoading(false);
-    });
+    fetch("/api/users")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setUsers(data);
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, []);
 
   const filtered = search
     ? users.filter(
         (u) =>
           u.name.toLowerCase().includes(search.toLowerCase()) ||
-          u.username.toLowerCase().includes(search.toLowerCase()) ||
+          u.email.toLowerCase().includes(search.toLowerCase()) ||
           u.roleLabel.toLowerCase().includes(search.toLowerCase())
       )
     : users;
@@ -67,7 +82,7 @@ export default function UsersPage() {
                 <thead>
                   <tr className="border-b text-left">
                     <th className="pb-3 font-medium text-muted-foreground">Name</th>
-                    <th className="pb-3 font-medium text-muted-foreground">Username</th>
+                    <th className="pb-3 font-medium text-muted-foreground">Email</th>
                     <th className="pb-3 font-medium text-muted-foreground">Role</th>
                     <th className="pb-3 font-medium text-muted-foreground">Status</th>
                     <th className="pb-3 font-medium text-muted-foreground">Last Activity</th>
@@ -78,7 +93,7 @@ export default function UsersPage() {
                   {filtered.map((u) => (
                     <tr key={u.id} className="border-b hover:bg-accent/30 transition-colors">
                       <td className="py-3 font-medium text-foreground">{u.name}</td>
-                      <td className="py-3 text-muted-foreground font-mono text-xs">{u.username}</td>
+                      <td className="py-3 text-muted-foreground font-mono text-xs">{u.email}</td>
                       <td className="py-3">
                         <Badge variant="secondary" className="text-xs">{u.roleLabel}</Badge>
                       </td>
@@ -110,7 +125,7 @@ export default function UsersPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="text-sm font-semibold text-foreground">{u.name}</p>
-                      <p className="text-xs text-muted-foreground font-mono">@{u.username}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{u.email}</p>
                     </div>
                     <Badge variant={u.isActive ? "default" : "secondary"} className="text-[10px]">
                       {u.isActive ? "Active" : "Inactive"}

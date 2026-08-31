@@ -35,7 +35,10 @@ export const navItems: SecureNavItem[] = [
   { label: "Audit Log", href: "/settings/audit", icon: ScrollText, permission: "users.view" },
 ];
 
-export function getVisibleNavItems(permissions: string[]): SecureNavItem[] {
+export function getVisibleNavItems(permissions: string[], isAdmin = false): SecureNavItem[] {
+  // ADMIN sees everything regardless of permissions array
+  if (isAdmin) return navItems;
+  
   return navItems.filter((item) => {
     if (!item.permission) return true;
     return permissions.includes(item.permission);

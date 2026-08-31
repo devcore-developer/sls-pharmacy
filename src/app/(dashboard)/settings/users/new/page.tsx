@@ -12,31 +12,40 @@ import {
 import { PageHeader } from "@/components/shared/page-header";
 import { LoadingState } from "@/components/shared/loading-state";
 import { RequirePermission } from "@/components/shared/require-permission";
-import { createUser } from "@/lib/offline/user-repository";
-import { getAllRoles } from "@/lib/offline/role-repository";
 import { PASSWORD_REQUIREMENTS, validatePassword } from "@/lib/auth/password";
-import { useAuth } from "@/lib/auth/auth-context";
-import type { RoleListItem } from "@/lib/offline/role-repository";
+
+interface RoleItem {
+  id: string;
+  name: string;
+  label: string;
+  description: string | null;
+  isSystem: boolean;
+  userCount: number;
+}
 
 export default function NewUserPage() {
   const router = useRouter();
-  const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [roles, setRoles] = useState<RoleListItem[]>([]);
+  const [roles, setRoles] = useState<RoleItem[]>([]);
 
   const [name, setName] = useState("");
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [roleId, setRoleId] = useState("");
 
   useEffect(() => {
-    getAllRoles().then((data) => {
-      setRoles(data);
-      setLoading(false);
-    });
+    fetch("/api/roles")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setRoles(data);
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -44,7 +53,7 @@ export default function NewUserPage() {
     setError("");
 
     if (!name.trim()) { setError("Name is required."); return; }
-    if (!username.trim()) { setError("Username is required."); return; }
+    if (!email.trim()) { setError("Email is required."); return; }
     if (!roleId) { setError("Please select a role."); return; }
 
     const validation = validatePassword(password);
@@ -54,14 +63,18 @@ export default function NewUserPage() {
 
     setSubmitting(true);
     try {
-      const result = await createUser(
-        { name: name.trim(), username: username.trim(), password, roleId },
-        session!.userId
-      );
-      if (result.success) {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), password, roleId }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
         router.push("/settings/users");
       } else {
-        setError(result.error ?? "Failed to create user.");
+        setError(data.error || "Failed to create user.");
       }
     } catch {
       setError("An error occurred.");
@@ -92,8 +105,8 @@ export default function NewUserPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="username">Username <span className="text-destructive">*</span></Label>
-            <Input id="username" placeholder="e.g. fatima" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
+            <Label htmlFor="email">Email <span className="text-destructive">*</span></Label>
+            <Input id="email" type="email" placeholder="e.g. fatima@example.com" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
           </div>
 
           <div className="space-y-2">

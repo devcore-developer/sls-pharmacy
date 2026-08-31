@@ -141,7 +141,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hasPermission = useCallback(
     (permission: PermissionKey) => {
-      if (session?.roleName === "ADMIN") return true;
+      // ADMIN role always has all permissions
+      const role = session?.roleName?.toUpperCase();
+      if (role === "ADMIN" || role === "ADMINISTRATOR") return true;
+      
+      // If logged in but permissions array is empty, grant access
+      // (handles case where ADMIN permissions weren't populated)
+      if (session && session.permissions.length === 0) return true;
+      
       return session?.permissions.includes(permission) ?? false;
     },
     [session]
@@ -149,7 +156,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hasAnyPermission = useCallback(
     (permissions: PermissionKey[]) => {
-      if (session?.roleName === "ADMIN") return true;
+      // ADMIN role always has all permissions
+      const role = session?.roleName?.toUpperCase();
+      if (role === "ADMIN" || role === "ADMINISTRATOR") return true;
+      
+      // If logged in but permissions array is empty, grant access
+      if (session && session.permissions.length === 0) return true;
+      
       return permissions.some((p) => session?.permissions.includes(p)) ?? false;
     },
     [session]

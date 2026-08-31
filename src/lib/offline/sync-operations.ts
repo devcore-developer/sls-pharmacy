@@ -42,6 +42,7 @@ export async function logOperation(params: {
 
   const db = await getDb();
   await db.syncOperations.add({
+    id: crypto.randomUUID(),
     operationId,
     deviceId: resolvedDeviceId,
     userId: params.userId,
@@ -68,6 +69,7 @@ export async function logWarehouseOperation(params: {
 
   const db = await getDb();
   await db.syncOperations.add({
+    id: crypto.randomUUID(),
     operationId,
     deviceId: resolvedDeviceId,
     entityType: "warehouse",

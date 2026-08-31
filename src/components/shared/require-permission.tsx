@@ -11,14 +11,15 @@ interface RequirePermissionProps {
 }
 
 export function RequirePermission({ permissions, children, requireAll = false }: RequirePermissionProps) {
-  const { session, loading } = useAuth();
+  const { session, loading, hasPermission, hasAnyPermission } = useAuth();
 
   if (loading) return null;
   if (!session) return null;
 
+  // Use context functions which handle ADMIN role properly
   const allowed = requireAll
-    ? permissions.every((p) => session.permissions.includes(p))
-    : permissions.some((p) => session.permissions.includes(p));
+    ? permissions.every((p) => hasPermission(p))
+    : hasAnyPermission(permissions);
 
   if (!allowed) return <PermissionDenied />;
 

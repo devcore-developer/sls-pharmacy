@@ -16,7 +16,8 @@ export function Sidebar({ onNavigate, className }: SidebarProps) {
   const pathname = usePathname();
   const { session } = useAuth();
 
-  const items = getVisibleNavItems(session?.permissions ?? []);
+  const isAdmin = session?.roleName === "ADMIN";
+  const items = getVisibleNavItems(session?.permissions ?? [], isAdmin);
 
   // Separate main items from settings sub-items
   const settingsHrefs = ["/settings/users", "/settings/roles", "/settings/audit"];
