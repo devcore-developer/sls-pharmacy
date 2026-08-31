@@ -258,6 +258,7 @@ export async function confirmReceipt(params: {
         });
 
         await db.syncOperations.add({
+          id: crypto.randomUUID(),  // ← أضف هذا
           operationId: crypto.randomUUID(),
           deviceId,
           entityType: "stockReceipt",
@@ -336,6 +337,7 @@ export async function confirmReceipt(params: {
           });
 
           await db.syncOperations.add({
+            id: crypto.randomUUID(),  // ← أضف هذا
             operationId: crypto.randomUUID(),
             deviceId,
             entityType: "stockMovement",
