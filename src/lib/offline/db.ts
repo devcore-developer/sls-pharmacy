@@ -9,6 +9,7 @@ export interface MedicineRecord {
   tradeName: string;
   genericName: string;
   manufacturer?: string;
+  barcode?: string;
   notes?: string;
   archivedAt?: Date;
   createdAt: Date;
@@ -443,7 +444,6 @@ class SLSPharmacyDB extends Dexie {
     });
 
     // Phase 11: Fix primary key types for UUID-based tables
-    // Migrate from ++id (auto-increment) to id (provided UUID)
     this.version(11).stores({
       medicines: "id, tradeName, genericName, archivedAt, createdAt, updatedAt",
       categories: "id, name, createdAt",
@@ -476,7 +476,6 @@ class SLSPharmacyDB extends Dexie {
         // If the primary key is a number (auto-generated), generate a UUID
         if (typeof user.id === "number") {
           const newId = crypto.randomUUID();
-          // Copy all data with new UUID
           const userData = { ...user };
           delete (userData as Record<string, unknown>).id;
           (userData as Record<string, unknown>).id = newId;
@@ -573,6 +572,33 @@ class SLSPharmacyDB extends Dexie {
           await tx.table("auditLogs").add(logData);
         }
       }
+    });
+
+    // Phase 12: Add barcode to medicines
+    this.version(12).stores({
+      medicines: "id, tradeName, genericName, barcode, archivedAt, createdAt, updatedAt",
+      categories: "id, name, createdAt",
+      pharmacologicalClasses: "id, name, createdAt",
+      medicineCategories: "[medicineId+categoryId], medicineId, categoryId",
+      medicinePharmacologicalClasses: "[medicineId+pharmacologicalClassId], medicineId, pharmacologicalClassId",
+      medicineAlternatives: "id, medicineId, alternativeMedicineId",
+      batches: "id, medicineId, batchNumber, expiryDate, cartonId, archivedAt, createdAt, updatedAt",
+      cartons: "id, code, sectionId, isActive, createdAt",
+      storageSections: "id, name, code, isActive, createdAt",
+      batchLocationTransfers: "id, batchId, fromCartonId, toCartonId, createdAt",
+      convoys: "id, status, date, createdAt",
+      convoyItems: "id, convoyId, medicineId, batchId, createdAt",
+      stockMovements: "id, medicineId, batchId, convoyId, convoyItemId, receiptId, receiptItemId, type, createdAt",
+      cartonsOld: "id, medicineId, batchId, cartonNumber, location",
+      syncOperations: "id, operationId, deviceId, entityType, entityId, operationType, syncStatus, createdAt",
+      stockReceipts: "id, receiptNumber, sourceType, date, createdAt",
+      stockReceiptItems: "id, receiptId, medicineId, batchId, createdAt",
+      users: "id, username, roleId, isActive, createdAt",
+      roles: "id, name, isSystem, createdAt",
+      permissions: "id, key, group",
+      rolePermissions: "id, roleId, permissionKey, &[roleId+permissionKey]",
+      sessions: "id, userId, expiresAt, createdAt",
+      auditLogs: "id, userId, action, entityType, entityId, deviceId, createdAt",
     });
   }
 }

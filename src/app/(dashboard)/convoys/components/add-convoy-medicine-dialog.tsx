@@ -1,16 +1,24 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search } from "lucide-react";
-import { getAllMedicines } from "@/lib/offline/medicine-repository";
-import { getAvailableBatchesForMedicine, addConvoyItem } from "@/lib/offline/convoy-item-repository";
+import { MedicineAutocomplete } from "@/components/medicine/medicine-autocomplete";
+import { MedicineScanner } from "@/components/medicine/medicine-scanner";
 import { formatDate } from "@/lib/utils";
+import {
+  getAvailableBatchesForMedicine,
+  addConvoyItem,
+} from "@/lib/offline/convoy-item-repository";
 import type { MedicineWithRelations, BatchAvailability } from "@/types";
+import type { MedicineSearchResult } from "@/lib/offline/medicine-repository";
 
 interface Props {
   convoyId: string;
@@ -19,39 +27,88 @@ interface Props {
   onAdded: () => void;
 }
 
-export function AddConvoyMedicineDialog({ convoyId, open, onOpenChange, onAdded }: Props) {
-  const [medicines, setMedicines] = useState<MedicineWithRelations[]>([]);
-  const [search, setSearch] = useState("");
-  const [selectedMed, setSelectedMed] = useState<MedicineWithRelations | null>(null);
+export function AddConvoyMedicineDialog({
+  convoyId,
+  open,
+  onOpenChange,
+  onAdded,
+}: Props) {
+  const [selectedMed, setSelectedMed] = useState<MedicineWithRelations | null>(
+    null
+  );
+  const [medValue, setMedValue] = useState("");
+  const [medId, setMedId] = useState<string | null>(null);
   const [batches, setBatches] = useState<BatchAvailability[]>([]);
-  const [selectedBatch, setSelectedBatch] = useState<BatchAvailability | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<BatchAvailability | null>(
+    null
+  );
   const [quantity, setQuantity] = useState("");
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
       setError("");
-      setSearch("");
+      setMedValue("");
+      setMedId(null);
       setSelectedMed(null);
       setSelectedBatch(null);
       setQuantity("");
       setBatches([]);
-      getAllMedicines().then(setMedicines);
     }
   }, [open]);
 
-  async function selectMedicine(med: MedicineWithRelations) {
-    setSelectedMed(med);
-    setSelectedBatch(null);
-    setQuantity("");
-    setError("");
-    const avail = await getAvailableBatchesForMedicine(med.id, convoyId);
-    setBatches(avail);
-    if (avail.length === 0) {
-      setError("No available batches for this medicine.");
-    }
-  }
+  const handleMedicineChange = useCallback(
+    async (
+      value: string,
+      medicineId: string | null,
+      medicine?: MedicineSearchResult
+    ) => {
+      setMedValue(value);
+      setMedId(medicineId);
+
+      if (medicineId && medicine) {
+        setError("");
+        try {
+          const { getMedicineById } = await import(
+            "@/lib/offline/medicine-repository"
+          );
+          const med = await getMedicineById(medicineId);
+          if (med) {
+            setSelectedMed(med);
+            setSelectedBatch(null);
+            setQuantity("");
+            const avail = await getAvailableBatchesForMedicine(
+              med.id,
+              convoyId
+            );
+            setBatches(avail);
+            if (avail.length === 0) {
+              setError("No available batches for this medicine.");
+            }
+          }
+        } catch (err) {
+          console.error("Error loading medicine:", err);
+        }
+      } else {
+        setSelectedMed(null);
+        setBatches([]);
+        setSelectedBatch(null);
+      }
+    },
+    [convoyId]
+  );
+
+  const handleScanResult = useCallback(
+    (medicineId: string | null, medicineName: string | null) => {
+      setScannerOpen(false);
+      if (medicineId && medicineName) {
+        handleMedicineChange(medicineName, medicineId);
+      }
+    },
+    [handleMedicineChange]
+  );
 
   function selectBatch(batch: BatchAvailability) {
     setSelectedBatch(batch);
@@ -61,6 +118,8 @@ export function AddConvoyMedicineDialog({ convoyId, open, onOpenChange, onAdded 
 
   function reset() {
     setSelectedMed(null);
+    setMedValue("");
+    setMedId(null);
     setSelectedBatch(null);
     setQuantity("");
     setBatches([]);
@@ -70,9 +129,14 @@ export function AddConvoyMedicineDialog({ convoyId, open, onOpenChange, onAdded 
   async function handleAdd() {
     if (!selectedMed || !selectedBatch) return;
     const qty = parseInt(quantity, 10);
-    if (!qty || qty < 1) { setError("Enter a valid quantity."); return; }
+    if (!qty || qty < 1) {
+      setError("Enter a valid quantity.");
+      return;
+    }
     if (qty > selectedBatch.availableQuantity) {
-      setError(`Insufficient stock. Available: ${selectedBatch.availableQuantity}`);
+      setError(
+        `Insufficient stock. Available: ${selectedBatch.availableQuantity}`
+      );
       return;
     }
     setAdding(true);
@@ -94,95 +158,139 @@ export function AddConvoyMedicineDialog({ convoyId, open, onOpenChange, onAdded 
     }
   }
 
-  const filteredMeds = search
-    ? medicines.filter(
-        (m) =>
-          !m.archivedAt &&
-          (m.tradeName.toLowerCase().includes(search.toLowerCase()) ||
-            m.genericName.toLowerCase().includes(search.toLowerCase()))
-      )
-    : medicines.filter((m) => !m.archivedAt);
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Add Medicine</DialogTitle>
-          <DialogDescription>Select a medicine, batch, and quantity.</DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add Medicine</DialogTitle>
+            <DialogDescription>
+              Select a medicine, batch, and quantity.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4">
-          {!selectedMed ? (
-            <>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search medicines..." className="pl-9" />
-              </div>
-              <div className="max-h-[50vh] overflow-y-auto space-y-1">
-                {filteredMeds.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">No medicines found.</p>
-                ) : (
-                  filteredMeds.map((med) => (
-                    <button key={med.id} type="button" onClick={() => selectMedicine(med)}
-                      className="w-full text-left rounded-lg border px-3 py-2.5 hover:bg-accent/50 transition-colors">
-                      <p className="text-sm font-medium">{med.tradeName}</p>
-                      <p className="text-xs text-muted-foreground">{med.genericName}</p>
-                    </button>
-                  ))
+          <div className="space-y-4">
+            {!selectedMed ? (
+              <>
+                <MedicineAutocomplete
+                  value={medValue}
+                  onChange={handleMedicineChange}
+                  medicineId={medId}
+                  placeholder="Search by trade name, generic name..."
+                  onScan={() => setScannerOpen(true)}
+                />
+                {error && <p className="text-xs text-destructive">{error}</p>}
+              </>
+            ) : !selectedBatch ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {selectedMed.tradeName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedMed.genericName}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={reset}>
+                    &larr; Back
+                  </Button>
+                </div>
+                {error && (
+                  <p className="text-xs text-destructive">{error}</p>
                 )}
-              </div>
-            </>
-          ) : !selectedBatch ? (
-            <>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{selectedMed.tradeName}</p>
-                  <p className="text-xs text-muted-foreground">{selectedMed.genericName}</p>
+                <p className="text-xs font-medium text-muted-foreground">
+                  Select a batch (FEFO order):
+                </p>
+                <div className="max-h-[40vh] overflow-y-auto space-y-1">
+                  {batches.map((b) => (
+                    <button
+                      key={b.batchId}
+                      type="button"
+                      onClick={() => selectBatch(b)}
+                      className="w-full text-left rounded-lg border px-3 py-2.5 hover:bg-accent/50 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-mono font-medium">
+                          {b.batchNumber}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Exp: {formatDate(b.expiryDate)}
+                        </p>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Available: {b.availableQuantity} units
+                      </p>
+                    </button>
+                  ))}
                 </div>
-                <Button variant="ghost" size="sm" onClick={reset}>← Back</Button>
-              </div>
-              {error && <p className="text-xs text-destructive">{error}</p>}
-              <p className="text-xs font-medium text-muted-foreground">Select a batch (FEFO order):</p>
-              <div className="max-h-[40vh] overflow-y-auto space-y-1">
-                {batches.map((b) => (
-                  <button key={b.batchId} type="button" onClick={() => selectBatch(b)}
-                    className="w-full text-left rounded-lg border px-3 py-2.5 hover:bg-accent/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-mono font-medium">{b.batchNumber}</p>
-                      <p className="text-xs text-muted-foreground">Exp: {formatDate(b.expiryDate)}</p>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">Available: {b.availableQuantity} units</p>
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{selectedMed.tradeName}</p>
-                  <p className="text-xs text-muted-foreground">{selectedMed.genericName} · Batch {selectedBatch.batchNumber}</p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {selectedMed.tradeName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedMed.genericName} &middot; Batch{" "}
+                      {selectedBatch.batchNumber}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedBatch(null);
+                      setError("");
+                    }}
+                  >
+                    &larr; Back
+                  </Button>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => { setSelectedBatch(null); setError(""); }}>← Back</Button>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Quantity Taken <span className="text-destructive">*</span></label>
-                <Input type="number" min={1} max={selectedBatch.availableQuantity} value={quantity}
-                  onChange={(e) => { setQuantity(e.target.value); setError(""); }}
-                  placeholder={`Max: ${selectedBatch.availableQuantity}`} />
-                <p className="text-xs text-muted-foreground">Available: {selectedBatch.availableQuantity} units</p>
-              </div>
-              {error && <p className="text-xs text-destructive">{error}</p>}
-              <div className="flex justify-end gap-3 pt-2">
-                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button onClick={handleAdd} disabled={adding || !quantity}>
-                  {adding ? "Adding..." : "Add to Convoy"}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Quantity Taken <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={selectedBatch.availableQuantity}
+                    value={quantity}
+                    onChange={(e) => {
+                      setQuantity(e.target.value);
+                      setError("");
+                    }}
+                    placeholder={`Max: ${selectedBatch.availableQuantity}`}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Available: {selectedBatch.availableQuantity} units
+                  </p>
+                </div>
+                {error && (
+                  <p className="text-xs text-destructive">{error}</p>
+                )}
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleAdd}
+                    disabled={adding || !quantity}
+                  >
+                    {adding ? "Adding..." : "Add to Convoy"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <MedicineScanner open={scannerOpen} onClose={handleScanResult} />
+    </>
   );
 }

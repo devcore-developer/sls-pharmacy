@@ -83,6 +83,7 @@ model Medicine {
   tradeName              String
   genericName            String
   manufacturer           String?
+  barcode                String?                      @unique
   notes                  String?
   archivedAt             DateTime?
   createdAt              DateTime                     @default(now())

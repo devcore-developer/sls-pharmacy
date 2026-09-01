@@ -1,8 +1,6 @@
-// src/app/(dashboard)/inventory/components/adjust-stock-dialog.tsx
-
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -13,13 +11,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, ArrowUpCircle, ArrowDownCircle, AlertTriangle } from "lucide-react";
+import { ArrowUpCircle, ArrowDownCircle, AlertTriangle } from "lucide-react";
+import { MedicineAutocomplete } from "@/components/medicine/medicine-autocomplete";
+import { MedicineScanner } from "@/components/medicine/medicine-scanner";
 import { createAdjustment } from "@/lib/offline/stock-movement-repository";
-import { getAllMedicines } from "@/lib/offline/medicine-repository";
 import { getBatchesForMedicine } from "@/lib/offline/batch-repository";
 import { formatDate } from "@/lib/utils";
 import { ADJUSTMENT_REASONS } from "@/types";
-import type { MedicineWithRelations, BatchWithCarton, AdjustmentReason } from "@/types";
+import type {
+  MedicineWithRelations,
+  BatchWithCarton,
+  AdjustmentReason,
+} from "@/types";
+import type { MedicineSearchResult } from "@/lib/offline/medicine-repository";
 
 interface Props {
   open: boolean;
@@ -29,13 +33,20 @@ interface Props {
 
 type Step = "medicine" | "batch" | "form" | "confirm";
 
-export function AdjustStockDialog({ open, onOpenChange, onAdjusted }: Props) {
+export function AdjustStockDialog({
+  open,
+  onOpenChange,
+  onAdjusted,
+}: Props) {
   const [step, setStep] = useState<Step>("medicine");
-  const [medicines, setMedicines] = useState<MedicineWithRelations[]>([]);
-  const [search, setSearch] = useState("");
-  const [selectedMed, setSelectedMed] = useState<MedicineWithRelations | null>(null);
+  const [selectedMed, setSelectedMed] =
+    useState<MedicineWithRelations | null>(null);
+  const [medValue, setMedValue] = useState("");
+  const [medId, setMedId] = useState<string | null>(null);
   const [batches, setBatches] = useState<BatchWithCarton[]>([]);
-  const [selectedBatch, setSelectedBatch] = useState<BatchWithCarton | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<BatchWithCarton | null>(
+    null
+  );
   const [adjustType, setAdjustType] = useState<"IN" | "OUT">("IN");
   const [quantity, setQuantity] = useState("");
   const [reason, setReason] = useState<AdjustmentReason | "">("");
@@ -43,15 +54,16 @@ export function AdjustStockDialog({ open, onOpenChange, onAdjusted }: Props) {
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   useEffect(() => {
     if (open) reset();
-    getAllMedicines().then(setMedicines);
   }, [open]);
 
   function reset() {
     setStep("medicine");
-    setSearch("");
+    setMedValue("");
+    setMedId(null);
     setSelectedMed(null);
     setBatches([]);
     setSelectedBatch(null);
@@ -64,13 +76,48 @@ export function AdjustStockDialog({ open, onOpenChange, onAdjusted }: Props) {
     setSubmitting(false);
   }
 
-  async function selectMedicine(med: MedicineWithRelations) {
-    setSelectedMed(med);
-    setStep("batch");
-    setError("");
-    const data = await getBatchesForMedicine(med.id);
-    setBatches(data.filter((b) => !b.archivedAt));
-  }
+  const handleMedicineChange = useCallback(
+    async (
+      value: string,
+      medicineId: string | null,
+      medicine?: MedicineSearchResult
+    ) => {
+      setMedValue(value);
+      setMedId(medicineId);
+
+      if (medicineId) {
+        setError("");
+        try {
+          const { getMedicineById } = await import(
+            "@/lib/offline/medicine-repository"
+          );
+          const med = await getMedicineById(medicineId);
+          if (med) {
+            setSelectedMed(med);
+            setStep("batch");
+            const data = await getBatchesForMedicine(med.id);
+            setBatches(data.filter((b) => !b.archivedAt));
+          }
+        } catch (err) {
+          console.error("Error loading medicine:", err);
+        }
+      } else {
+        setSelectedMed(null);
+        setBatches([]);
+      }
+    },
+    []
+  );
+
+  const handleScanResult = useCallback(
+    (medicineId: string | null, medicineName: string | null) => {
+      setScannerOpen(false);
+      if (medicineId && medicineName) {
+        handleMedicineChange(medicineName, medicineId);
+      }
+    },
+    [handleMedicineChange]
+  );
 
   function selectBatch(batch: BatchWithCarton) {
     setSelectedBatch(batch);
@@ -97,7 +144,8 @@ export function AdjustStockDialog({ open, onOpenChange, onAdjusted }: Props) {
   }
 
   async function handleSubmit() {
-    if (!selectedMed || !selectedBatch || !resolvedReason || !qty || qty < 1) return;
+    if (!selectedMed || !selectedBatch || !resolvedReason || !qty || qty < 1)
+      return;
     setSubmitting(true);
     setError("");
     try {
@@ -120,363 +168,360 @@ export function AdjustStockDialog({ open, onOpenChange, onAdjusted }: Props) {
     }
   }
 
-  const filteredMeds = search
-    ? medicines.filter(
-        (m) =>
-          !m.archivedAt &&
-          (m.tradeName.toLowerCase().includes(search.toLowerCase()) ||
-            m.genericName.toLowerCase().includes(search.toLowerCase()))
-      )
-    : medicines.filter((m) => !m.archivedAt);
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Adjust Stock</DialogTitle>
-          <DialogDescription>
-            {step === "medicine" && "Select a medicine to adjust."}
-            {step === "batch" && "Select the batch to adjust."}
-            {step === "form" && "Enter adjustment details."}
-            {step === "confirm" && "Review and confirm."}
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Adjust Stock</DialogTitle>
+            <DialogDescription>
+              {step === "medicine" && "Select a medicine to adjust."}
+              {step === "batch" && "Select the batch to adjust."}
+              {step === "form" && "Enter adjustment details."}
+              {step === "confirm" && "Review and confirm."}
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4">
-          {step === "medicine" && (
-            <>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search medicines..."
-                  className="pl-9"
-                  autoFocus
-                />
-              </div>
-              <div className="max-h-[50vh] overflow-y-auto space-y-1">
-                {filteredMeds.length === 0 ? (
+          <div className="space-y-4">
+            {step === "medicine" && (
+              <MedicineAutocomplete
+                value={medValue}
+                onChange={handleMedicineChange}
+                medicineId={medId}
+                placeholder="Search by trade name, generic name..."
+                onScan={() => setScannerOpen(true)}
+              />
+            )}
+
+            {step === "batch" && (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {selectedMed?.tradeName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedMed?.genericName}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setStep("medicine");
+                      setSelectedBatch(null);
+                    }}
+                  >
+                    &larr; Back
+                  </Button>
+                </div>
+                {batches.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">
-                    No medicines found.
+                    No active batches for this medicine.
                   </p>
                 ) : (
-                  filteredMeds.map((med) => (
-                    <button
-                      key={med.id}
-                      type="button"
-                      onClick={() => selectMedicine(med)}
-                      className="w-full text-left rounded-lg border px-3 py-2.5 hover:bg-accent/50 transition-colors"
-                    >
-                      <p className="text-sm font-medium">{med.tradeName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {med.genericName}
-                      </p>
-                    </button>
-                  ))
-                )}
-              </div>
-            </>
-          )}
-
-          {step === "batch" && (
-            <>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{selectedMed?.tradeName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedMed?.genericName}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setStep("medicine");
-                    setSelectedBatch(null);
-                  }}
-                >
-                  ← Back
-                </Button>
-              </div>
-              {batches.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">
-                  No active batches for this medicine.
-                </p>
-              ) : (
-                <div className="max-h-[50vh] overflow-y-auto space-y-1">
-                  {batches.map((b) => (
-                    <button
-                      key={b.id}
-                      type="button"
-                      onClick={() => selectBatch(b)}
-                      className="w-full text-left rounded-lg border px-3 py-2.5 hover:bg-accent/50 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-mono font-medium">
-                          {b.batchNumber}
+                  <div className="max-h-[50vh] overflow-y-auto space-y-1">
+                    {batches.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => selectBatch(b)}
+                        className="w-full text-left rounded-lg border px-3 py-2.5 hover:bg-accent/50 transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-mono font-medium">
+                            {b.batchNumber}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Exp: {formatDate(b.expiryDate)}
+                          </p>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Current Stock: {b.quantity} units
                         </p>
-                        <p className="text-xs text-muted-foreground">
-                          Exp: {formatDate(b.expiryDate)}
-                        </p>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Current Stock: {b.quantity} units
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {step === "form" && selectedBatch && (
-            <>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">
-                    {selectedMed?.tradeName} · {selectedBatch.batchNumber}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Current Stock: {selectedBatch.quantity} units
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setStep("batch");
-                    setError("");
-                  }}
-                >
-                  ← Back
-                </Button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAdjustType("IN")}
-                  className={`flex items-center justify-center gap-2 rounded-lg border p-3 transition-colors ${
-                    adjustType === "IN"
-                      ? "border-success bg-success/10 text-success"
-                      : "hover:bg-accent/50"
-                  }`}
-                >
-                  <ArrowUpCircle className="h-4 w-4" />
-                  <span className="text-sm font-medium">Increase</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAdjustType("OUT")}
-                  className={`flex items-center justify-center gap-2 rounded-lg border p-3 transition-colors ${
-                    adjustType === "OUT"
-                      ? "border-destructive bg-destructive/10 text-destructive"
-                      : "hover:bg-accent/50"
-                  }`}
-                >
-                  <ArrowDownCircle className="h-4 w-4" />
-                  <span className="text-sm font-medium">Decrease</span>
-                </button>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Quantity <span className="text-destructive">*</span>
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={
-                    adjustType === "OUT" ? selectedBatch.quantity : undefined
-                  }
-                  value={quantity}
-                  onChange={(e) => {
-                    setQuantity(e.target.value);
-                    setError("");
-                  }}
-                  placeholder={
-                    adjustType === "OUT"
-                      ? `Max: ${selectedBatch.quantity}`
-                      : "Enter quantity"
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Reason <span className="text-destructive">*</span>
-                </label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {ADJUSTMENT_REASONS.map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => {
-                        setReason(r);
-                        setCustomReason("");
-                        setError("");
-                      }}
-                      className={`text-left text-xs rounded-md border px-2.5 py-1.5 transition-colors ${
-                        reason === r
-                          ? "border-primary bg-primary/10 text-primary font-medium"
-                          : "hover:bg-accent/50"
-                      }`}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-                {reason === "Other" && (
-                  <Input
-                    value={customReason}
-                    onChange={(e) => setCustomReason(e.target.value)}
-                    placeholder="Enter reason..."
-                    className="mt-2"
-                  />
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </div>
+              </>
+            )}
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Note</label>
-                <Input
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Optional note"
-                />
-              </div>
-
-              {error && (
-                <p className="text-xs text-destructive">{error}</p>
-              )}
-
-              {qty > 0 && newStock !== null && (
-                <div className="rounded-lg border p-3 space-y-1.5 bg-muted/30">
-                  <p className="text-xs text-muted-foreground">Preview</p>
-                  <div className="flex items-center justify-between text-sm">
-                    <span>Current:</span>
-                    <span className="font-medium tabular-nums">
-                      {selectedBatch.quantity}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span>Adjustment:</span>
-                    <span
-                      className={`font-medium tabular-nums ${
-                        adjustType === "IN" ? "text-success" : "text-destructive"
-                      }`}
-                    >
-                      {adjustType === "IN" ? "+" : "-"}
-                      {qty}
-                    </span>
-                  </div>
-                  <div className="border-t pt-1.5 flex items-center justify-between text-sm">
-                    <span className="font-medium">New Stock:</span>
-                    <span className="font-bold tabular-nums">{newStock}</span>
-                  </div>
-                  {newStock < 0 && (
-                    <p className="text-xs text-destructive flex items-center gap-1">
-                      <AlertTriangle className="h-3 w-3" />
-                      Stock cannot be negative
+            {step === "form" && selectedBatch && (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {selectedMed?.tradeName} &middot;{" "}
+                      {selectedBatch.batchNumber}
                     </p>
+                    <p className="text-xs text-muted-foreground">
+                      Current Stock: {selectedBatch.quantity} units
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setStep("batch");
+                      setError("");
+                    }}
+                  >
+                    &larr; Back
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdjustType("IN")}
+                    className={`flex items-center justify-center gap-2 rounded-lg border p-3 transition-colors ${
+                      adjustType === "IN"
+                        ? "border-success bg-success/10 text-success"
+                        : "hover:bg-accent/50"
+                    }`}
+                  >
+                    <ArrowUpCircle className="h-4 w-4" />
+                    <span className="text-sm font-medium">Increase</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustType("OUT")}
+                    className={`flex items-center justify-center gap-2 rounded-lg border p-3 transition-colors ${
+                      adjustType === "OUT"
+                        ? "border-destructive bg-destructive/10 text-destructive"
+                        : "hover:bg-accent/50"
+                    }`}
+                  >
+                    <ArrowDownCircle className="h-4 w-4" />
+                    <span className="text-sm font-medium">Decrease</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Quantity <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={
+                      adjustType === "OUT" ? selectedBatch.quantity : undefined
+                    }
+                    value={quantity}
+                    onChange={(e) => {
+                      setQuantity(e.target.value);
+                      setError("");
+                    }}
+                    placeholder={
+                      adjustType === "OUT"
+                        ? `Max: ${selectedBatch.quantity}`
+                        : "Enter quantity"
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Reason <span className="text-destructive">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {ADJUSTMENT_REASONS.map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => {
+                          setReason(r);
+                          setCustomReason("");
+                          setError("");
+                        }}
+                        className={`text-left text-xs rounded-md border px-2.5 py-1.5 transition-colors ${
+                          reason === r
+                            ? "border-primary bg-primary/10 text-primary font-medium"
+                            : "hover:bg-accent/50"
+                        }`}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                  {reason === "Other" && (
+                    <Input
+                      value={customReason}
+                      onChange={(e) => setCustomReason(e.target.value)}
+                      placeholder="Enter reason..."
+                      className="mt-2"
+                    />
                   )}
                 </div>
-              )}
 
-              <div className="flex justify-end gap-3 pt-2">
-                <Button variant="outline" onClick={() => onOpenChange(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleConfirm}
-                  disabled={
-                    !qty || qty < 1 || !reason || (reason === "Other" && !customReason.trim()) || (newStock !== null && newStock < 0)
-                  }
-                >
-                  Review
-                </Button>
-              </div>
-            </>
-          )}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Note</label>
+                  <Input
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Optional note"
+                  />
+                </div>
 
-          {step === "confirm" && selectedBatch && qty > 0 && newStock !== null && (
-            <>
-              <div className="rounded-lg border p-4 space-y-3">
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Medicine</p>
-                  <p className="text-sm font-medium">{selectedMed?.tradeName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedMed?.genericName}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Batch</p>
-                  <p className="text-sm font-mono font-medium">
-                    {selectedBatch.batchNumber}
-                  </p>
-                </div>
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Current</p>
-                    <p className="text-lg font-bold tabular-nums">
-                      {selectedBatch.quantity}
-                    </p>
+                {error && <p className="text-xs text-destructive">{error}</p>}
+
+                {qty > 0 && newStock !== null && (
+                  <div className="rounded-lg border p-3 space-y-1.5 bg-muted/30">
+                    <p className="text-xs text-muted-foreground">Preview</p>
+                    <div className="flex items-center justify-between text-sm">
+                      <span>Current:</span>
+                      <span className="font-medium tabular-nums">
+                        {selectedBatch.quantity}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span>Adjustment:</span>
+                      <span
+                        className={`font-medium tabular-nums ${
+                          adjustType === "IN"
+                            ? "text-success"
+                            : "text-destructive"
+                        }`}
+                      >
+                        {adjustType === "IN" ? "+" : "-"}
+                        {qty}
+                      </span>
+                    </div>
+                    <div className="border-t pt-1.5 flex items-center justify-between text-sm">
+                      <span className="font-medium">New Stock:</span>
+                      <span className="font-bold tabular-nums">
+                        {newStock}
+                      </span>
+                    </div>
+                    {newStock < 0 && (
+                      <p className="text-xs text-destructive flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        Stock cannot be negative
+                      </p>
+                    )}
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Adjustment</p>
-                    <p
-                      className={`text-lg font-bold tabular-nums ${
-                        adjustType === "IN" ? "text-success" : "text-destructive"
-                      }`}
-                    >
-                      {adjustType === "IN" ? "+" : "-"}
-                      {qty}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">New Stock</p>
-                    <p className="text-lg font-bold tabular-nums">
-                      {newStock}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <Badge
-                    variant={adjustType === "IN" ? "success" : "destructive"}
-                  >
-                    {adjustType === "IN" ? "Increase" : "Decrease"}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    Reason: {resolvedReason}
-                  </span>
-                </div>
-                {note && (
-                  <p className="text-xs text-muted-foreground">
-                    Note: {note}
-                  </p>
                 )}
-              </div>
 
-              {error && (
-                <p className="text-xs text-destructive">{error}</p>
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleConfirm}
+                    disabled={
+                      !qty ||
+                      qty < 1 ||
+                      !reason ||
+                      (reason === "Other" && !customReason.trim()) ||
+                      (newStock !== null && newStock < 0)
+                    }
+                  >
+                    Review
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {step === "confirm" &&
+              selectedBatch &&
+              qty > 0 &&
+              newStock !== null && (
+                <>
+                  <div className="rounded-lg border p-4 space-y-3">
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Medicine</p>
+                      <p className="text-sm font-medium">
+                        {selectedMed?.tradeName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedMed?.genericName}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Batch</p>
+                      <p className="text-sm font-mono font-medium">
+                        {selectedBatch.batchNumber}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Current</p>
+                        <p className="text-lg font-bold tabular-nums">
+                          {selectedBatch.quantity}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Adjustment
+                        </p>
+                        <p
+                          className={`text-lg font-bold tabular-nums ${
+                            adjustType === "IN"
+                              ? "text-success"
+                              : "text-destructive"
+                          }`}
+                        >
+                          {adjustType === "IN" ? "+" : "-"}
+                          {qty}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          New Stock
+                        </p>
+                        <p className="text-lg font-bold tabular-nums">
+                          {newStock}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <Badge
+                        variant={
+                          adjustType === "IN" ? "success" : "destructive"
+                        }
+                      >
+                        {adjustType === "IN" ? "Increase" : "Decrease"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        Reason: {resolvedReason}
+                      </span>
+                    </div>
+                    {note && (
+                      <p className="text-xs text-muted-foreground">
+                        Note: {note}
+                      </p>
+                    )}
+                  </div>
+
+                  {error && (
+                    <p className="text-xs text-destructive">{error}</p>
+                  )}
+
+                  <div className="flex justify-end gap-3 pt-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setStep("form")}
+                    >
+                      Back
+                    </Button>
+                    <Button
+                      variant={adjustType === "IN" ? "default" : "destructive"}
+                      onClick={handleSubmit}
+                      disabled={submitting}
+                    >
+                      {submitting ? "Processing..." : "Confirm Adjustment"}
+                    </Button>
+                  </div>
+                </>
               )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
-              <div className="flex justify-end gap-3 pt-2">
-                <Button variant="outline" onClick={() => setStep("form")}>
-                  Back
-                </Button>
-                <Button
-                  variant={adjustType === "IN" ? "default" : "destructive"}
-                  onClick={handleSubmit}
-                  disabled={submitting}
-                >
-                  {submitting ? "Processing..." : "Confirm Adjustment"}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+      <MedicineScanner open={scannerOpen} onClose={handleScanResult} />
+    </>
   );
 }

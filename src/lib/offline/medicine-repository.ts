@@ -295,6 +295,94 @@ export async function getAllPharmacologicalClasses(): Promise<PharmacologicalCla
 }
 
 /* ------------------------------------------------------------------ */
+/*  Search & Barcode Lookup                                            */
+/* ------------------------------------------------------------------ */
+
+export interface MedicineSearchResult {
+  id: string;
+  tradeName: string;
+  genericName: string;
+  manufacturer?: string;
+  barcode?: string;
+}
+
+/**
+ * Normalize Arabic/English text for fuzzy search matching.
+ * Handles common Arabic character variations (alef forms, taa marbuta, etc.)
+ */
+function normalizeSearchText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[ة]/g, "ه")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/[ى]/g, "ي")
+    .replace(/[ـ]/g, "")
+    .trim();
+}
+
+/**
+ * Search medicines by trade name, generic name, or barcode.
+ * Case-insensitive, Arabic-normalized. Returns up to `limit` active (non-archived) results.
+ * Runs entirely offline against IndexedDB.
+ */
+export async function searchMedicines(
+  query: string,
+  limit = 10
+): Promise<MedicineSearchResult[]> {
+  if (query.length < 2) return [];
+
+  const db = await getDb();
+  const allMedicines = await db.medicines.toArray();
+  const normalizedQuery = normalizeSearchText(query);
+
+  const results: MedicineSearchResult[] = [];
+
+  for (const m of allMedicines) {
+    if (m.archivedAt) continue;
+
+    const tradeMatch = normalizeSearchText(m.tradeName).includes(normalizedQuery);
+    const genericMatch = normalizeSearchText(m.genericName).includes(normalizedQuery);
+    const barcodeMatch = m.barcode ? m.barcode.includes(query) : false;
+
+    if (tradeMatch || genericMatch || barcodeMatch) {
+      results.push({
+        id: m.id!,
+        tradeName: m.tradeName,
+        genericName: m.genericName,
+        manufacturer: m.manufacturer || undefined,
+        barcode: m.barcode || undefined,
+      });
+
+      if (results.length >= limit) break;
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Find a single active medicine by its exact barcode.
+ * Uses the IndexedDB barcode index for O(1) lookup.
+ */
+export async function findMedicineByBarcode(
+  barcode: string
+): Promise<MedicineSearchResult | null> {
+  const db = await getDb();
+  const medicine = await db.medicines.where("barcode").equals(barcode).first();
+
+  if (!medicine || medicine.archivedAt) return null;
+
+  return {
+    id: medicine.id!,
+    tradeName: medicine.tradeName,
+    genericName: medicine.genericName,
+    manufacturer: medicine.manufacturer || undefined,
+    barcode: medicine.barcode || undefined,
+  };
+}
+
+
+/* ------------------------------------------------------------------ */
 /*  Internal helpers                                                   */
 /* ------------------------------------------------------------------ */
 
