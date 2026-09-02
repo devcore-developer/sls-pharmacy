@@ -10,10 +10,15 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { X, Camera, AlertCircle, Check, Loader2 } from "lucide-react";
+import type { MedicineSearchResult } from "@/lib/offline/medicine-repository";
 
 interface MedicineScannerProps {
   open: boolean;
-  onClose: (medicineId: string | null, medicineName: string | null) => void;
+  onClose: (
+    medicineId: string | null,
+    medicineName: string | null,
+    medicine?: MedicineSearchResult | null
+  ) => void;
 }
 
 const SCANNER_ELEMENT_ID = "medicine-scanner-viewfinder";
@@ -46,6 +51,7 @@ export function MedicineScanner({ open, onClose }: MedicineScannerProps) {
     }
     scannerRef.current = null;
   }, []);
+
   const handleScanSuccess = useCallback(
     async (decodedText: string) => {
       // Stop immediately to prevent duplicate scans
@@ -70,7 +76,7 @@ export function MedicineScanner({ open, onClose }: MedicineScannerProps) {
           });
           setStatus("found");
           setTimeout(() => {
-            onClose(medicine.id, medicine.tradeName);
+            onClose(medicine.id, medicine.tradeName, medicine);
           }, 1200);
         } else {
           setResult({ found: false, barcode });
@@ -147,7 +153,7 @@ export function MedicineScanner({ open, onClose }: MedicineScannerProps) {
 
   const handleClose = useCallback(() => {
     stopScanner();
-    onClose(null, null);
+    onClose(null, null, null);
   }, [stopScanner, onClose]);
 
   const handleScanAgain = useCallback(() => {

@@ -1,5 +1,3 @@
-// src/app/(dashboard)/dashboard/components/recent-activity.tsx
-
 "use client";
 
 import { ArrowUpCircle, ArrowDownCircle, MinusCircle, ArrowRight } from "lucide-react";
@@ -21,7 +19,7 @@ export function RecentActivitySection({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-base font-semibold">
+        <CardTitle>
           Recent Stock Activity
         </CardTitle>
         <a
@@ -33,8 +31,8 @@ export function RecentActivitySection({
       </CardHeader>
       <CardContent>
         {movements.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">
-            No stock movements yet.
+          <p className="text-sm text-muted-foreground text-center py-6">
+            No stock movements yet. Stock activity will appear here once inventory operations begin.
           </p>
         ) : (
           <div className="space-y-1">
@@ -44,12 +42,12 @@ export function RecentActivitySection({
               return (
                 <div
                   key={m.id}
-                  className="flex items-center gap-3 rounded-lg px-2.5 py-2 -mx-2.5 hover:bg-muted/50 transition-colors"
+                  className="flex items-center gap-3 rounded-lg px-2.5 py-2 -mx-2.5 hover:bg-muted/50 transition-colors cursor-default"
                 >
                   <div
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${cfg.bg}`}
                   >
-                    <Icon className={`h-3.5 w-3.5 ${cfg.color}`} strokeWidth={1.5} />
+                    <Icon className={`h-4 w-4 ${cfg.color}`} strokeWidth={2} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">

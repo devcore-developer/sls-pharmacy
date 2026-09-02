@@ -4,7 +4,10 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { MedicineAutocomplete } from "@/components/medicine/medicine-autocomplete";
+import { MedicineScanner } from "@/components/medicine/medicine-scanner";
 import type { MedicineFormData, CategoryItem, PharmacologicalClassItem } from "@/types";
+import type { MedicineSearchResult } from "@/lib/offline/medicine-repository";
 
 interface MedicineFormProps {
   initialData?: MedicineFormData;
@@ -27,15 +30,18 @@ export function MedicineForm({
 }: MedicineFormProps) {
   const [form, setForm] = useState<MedicineFormData>(
     initialData ?? {
+      id: undefined,
       tradeName: "",
       genericName: "",
       manufacturer: "",
+      barcode: "",
       pharmacologicalClassIds: [],
       categoryIds: [],
       notes: "",
     }
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   function validate(): boolean {
     const next: Record<string, string> = {};
@@ -69,6 +75,49 @@ export function MedicineForm({
     }));
   }
 
+  function handleAutocompleteChange(
+    value: string,
+    medicineId: string | null,
+    medicine?: MedicineSearchResult
+  ) {
+    if (medicine) {
+      // دواء موجود مسبقاً: تعبئة الحقول ومنع التكرار
+      setForm((prev) => ({
+        ...prev,
+        id: medicine.id,
+        tradeName: medicine.tradeName,
+        genericName: medicine.genericName,
+        manufacturer: medicine.manufacturer || "",
+        barcode: medicine.barcode || "",
+      }));
+    } else {
+      // دواء جديد
+      setForm((prev) => ({
+        ...prev,
+        id: undefined,
+        tradeName: value,
+      }));
+    }
+  }
+
+  function handleScannerClose(
+    medicineId: string | null,
+    medicineName: string | null,
+    medicine?: MedicineSearchResult | null
+  ) {
+    setScannerOpen(false);
+    if (medicine) {
+      setForm((prev) => ({
+        ...prev,
+        id: medicine.id,
+        tradeName: medicine.tradeName,
+        genericName: medicine.genericName,
+        manufacturer: medicine.manufacturer || "",
+        barcode: medicine.barcode || "",
+      }));
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -76,12 +125,12 @@ export function MedicineForm({
           <label htmlFor="tradeName" className="text-sm font-medium text-foreground">
             Trade Name <span className="text-destructive">*</span>
           </label>
-          <Input
-            id="tradeName"
+          <MedicineAutocomplete
             value={form.tradeName}
-            onChange={(e) => setForm((p) => ({ ...p, tradeName: e.target.value }))}
-            placeholder="e.g. Panadol"
-            autoFocus
+            onChange={handleAutocompleteChange}
+            medicineId={form.id ?? null}
+            placeholder="Search or enter trade name..."
+            onScan={() => setScannerOpen(true)}
           />
           {errors.tradeName && <p className="text-xs text-destructive">{errors.tradeName}</p>}
         </div>
@@ -100,14 +149,25 @@ export function MedicineForm({
         </div>
       </div>
 
-      <div className="space-y-2">
-        <label htmlFor="manufacturer" className="text-sm font-medium text-foreground">Manufacturer</label>
-        <Input
-          id="manufacturer"
-          value={form.manufacturer}
-          onChange={(e) => setForm((p) => ({ ...p, manufacturer: e.target.value }))}
-          placeholder="e.g. GSK, Pfizer"
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label htmlFor="manufacturer" className="text-sm font-medium text-foreground">Manufacturer</label>
+          <Input
+            id="manufacturer"
+            value={form.manufacturer}
+            onChange={(e) => setForm((p) => ({ ...p, manufacturer: e.target.value }))}
+            placeholder="e.g. GSK, Pfizer"
+          />
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="barcode" className="text-sm font-medium text-foreground">Barcode</label>
+          <Input
+            id="barcode"
+            value={form.barcode || ""}
+            onChange={(e) => setForm((p) => ({ ...p, barcode: e.target.value }))}
+            placeholder="Scan or enter barcode"
+          />
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -180,6 +240,8 @@ export function MedicineForm({
         <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>Cancel</Button>
         <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Saving..." : submitLabel}</Button>
       </div>
+
+      <MedicineScanner open={scannerOpen} onClose={handleScannerClose} />
     </form>
   );
 }

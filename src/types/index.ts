@@ -20,9 +20,11 @@ export type StockAvailability = "in_stock" | "low_stock" | "out_of_stock";
 export type ReconciliationStatus = "PENDING" | "PARTIALLY_RECONCILED" | "RECONCILED";
 
 export interface MedicineFormData {
+  id?: string; // أضف هذا السطر
   tradeName: string;
   genericName: string;
   manufacturer: string;
+  barcode?: string; // أضف هذا السطر
   pharmacologicalClassIds: string[];
   categoryIds: string[];
   notes: string;
@@ -33,6 +35,7 @@ export interface MedicineWithRelations {
   tradeName: string;
   genericName: string;
   manufacturer: string;
+  barcode?: string; // أضف هذا السطر
   notes: string;
   archivedAt: Date | null;
   createdAt: Date;

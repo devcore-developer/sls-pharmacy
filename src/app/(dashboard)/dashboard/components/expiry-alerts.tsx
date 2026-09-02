@@ -1,11 +1,8 @@
-// src/app/(dashboard)/dashboard/components/expiry-alerts.tsx
-
 "use client";
 
 import { AlertTriangle, XCircle, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState } from "@/components/shared/empty-state";
 import { formatDate } from "@/lib/utils";
 import type {
   ExpiryAlertItem,
@@ -34,14 +31,14 @@ export function ExpiryAlertsSection({
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-warning" />
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
             Expiry Alerts
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground text-center py-4">
-            No expiry alerts.
+          <p className="text-sm text-muted-foreground text-center py-6">
+            No expiry alerts. Everything looks good.
           </p>
         </CardContent>
       </Card>
@@ -51,7 +48,7 @@ export function ExpiryAlertsSection({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-warning" />
           Expiry Alerts
           <Badge variant="secondary" className="ml-auto text-xs">
@@ -60,14 +57,14 @@ export function ExpiryAlertsSection({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+        <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-thin">
           {alerts.map((a) => {
             const cfg = priorityConfig[a.priority];
             const PIcon = cfg.icon;
             return (
               <div
                 key={a.batchId}
-                className="rounded-lg border p-3 space-y-1.5"
+                className="rounded-lg border border-border p-3 space-y-2 hover:bg-muted/30 transition-colors"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -86,7 +83,7 @@ export function ExpiryAlertsSection({
                     {cfg.label}
                   </Badge>
                 </div>
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-xs border-t border-border/50 pt-2">
                   <span className="text-muted-foreground">
                     Stock: {a.stock} units
                   </span>
@@ -104,10 +101,6 @@ export function ExpiryAlertsSection({
                       : `${a.daysUntilExpiry}d remaining`}
                   </span>
                 </div>
-                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                  <Calendar className="h-3 w-3" />
-                  {formatDate(a.expiryDate)}
-                </p>
               </div>
             );
           })}
@@ -126,13 +119,13 @@ export function ExpiredStockSection({
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <XCircle className="h-4 w-4 text-destructive" />
+          <CardTitle className="flex items-center gap-2">
+            <XCircle className="h-4 w-4 text-muted-foreground" />
             Expired Stock
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground text-center py-4">
+          <p className="text-sm text-muted-foreground text-center py-6">
             No expired stock with remaining units.
           </p>
         </CardContent>
@@ -143,7 +136,7 @@ export function ExpiredStockSection({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2">
           <XCircle className="h-4 w-4 text-destructive" />
           Expired Stock
           <Badge variant="destructive" className="ml-auto text-[10px]">
@@ -152,11 +145,11 @@ export function ExpiredStockSection({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+        <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-thin">
           {items.map((e) => (
             <div
               key={e.batchId}
-              className="rounded-lg border border-destructive/20 p-3 space-y-1"
+              className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 space-y-1"
             >
               <p className="text-sm font-medium text-foreground truncate">
                 {e.medicineName}
@@ -164,7 +157,7 @@ export function ExpiredStockSection({
               <p className="text-xs text-muted-foreground font-mono">
                 Batch: {e.batchNumber}
               </p>
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-xs pt-1 border-t border-destructive/10">
                 <span className="text-muted-foreground">
                   Stock: {e.stock} units
                 </span>

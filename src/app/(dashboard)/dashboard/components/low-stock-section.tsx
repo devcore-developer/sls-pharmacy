@@ -1,5 +1,3 @@
-// src/app/(dashboard)/dashboard/components/low-stock-section.tsx
-
 "use client";
 
 import { AlertTriangle } from "lucide-react";
@@ -9,9 +7,9 @@ import type { LowStockItem } from "@/lib/offline/dashboard-repository";
 
 export function LowStockSection({ items }: { items: LowStockItem[] }) {
   return (
-    <Card>
+    <Card className="h-full">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-warning" />
           Low Stock
           {items.length > 0 && (
@@ -23,15 +21,13 @@ export function LowStockSection({ items }: { items: LowStockItem[] }) {
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">
+          <p className="text-sm text-muted-foreground text-center py-6">
             All medicines are above threshold.
           </p>
         ) : (
-          <div className="space-y-3 max-h-[400px] overflow-y-auto">
+          <div className="space-y-4 max-h-[400px] overflow-y-auto scrollbar-thin pt-1">
             {items.map((item) => {
-              const pct = Math.round(
-                (item.currentStock / item.threshold) * 100
-              );
+              const pct = Math.round((item.currentStock / item.threshold) * 100);
               return (
                 <div key={item.medicineId} className="space-y-1.5">
                   <div className="flex items-center justify-between">
@@ -45,7 +41,7 @@ export function LowStockSection({ items }: { items: LowStockItem[] }) {
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all ${
+                        className={`h-full rounded-full transition-all duration-300 ${
                           pct <= 25
                             ? "bg-destructive"
                             : pct <= 50

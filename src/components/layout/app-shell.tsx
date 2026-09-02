@@ -1,14 +1,20 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { syncMedicinesFromServer } from "@/lib/offline/medicine-repository";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const closeMobile = useCallback(() => setMobileOpen(false), []);
+
+  useEffect(() => {
+    // Sync medicine catalog from server to local IndexedDB on app load
+    syncMedicinesFromServer();
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">

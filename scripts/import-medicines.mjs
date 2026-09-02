@@ -1,12 +1,14 @@
 import fs from "fs";
 import path from "path";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 async function main() {
   const csvPath = path.join(process.cwd(), "medicines-data", "medicines.csv");
   
   if (!fs.existsSync(csvPath)) {
     console.error("❌ File not found: medicines-data/medicines.csv");
-    console.error("   Create 'medicines-data' folder and put 'medicines.csv' inside it");
     process.exit(1);
   }
 
@@ -18,7 +20,6 @@ async function main() {
     process.exit(1);
   }
 
-  // Parse header - handle quoted fields
   function parseCSVLine(line) {
     const result = [];
     let current = "";
@@ -26,7 +27,6 @@ async function main() {
     
     for (let i = 0; i < line.length; i++) {
       const char = line[i];
-      
       if (char === '"') {
         inQuotes = !inQuotes;
       } else if (char === ",") {
@@ -36,37 +36,32 @@ async function main() {
         current += char;
       }
     }
-    if (current.trim()) {
-      result.push(current.trim());
-    }
-    
+    if (current.trim()) result.push(current.trim());
     return result;
   }
 
   const header = parseCSVLine(lines[0]);
-  const tradeNameIdx = header.findIndex(h => h.toLowerCase().includes("tradename"));
-  const genericNameIdx = header.findIndex(h => h.toLowerCase().includes("genericname"));
+  // Correct mapping based on actual CSV headers
+  const tradeNameIdx = header.findIndex(h => h.toLowerCase() === "commercial_name_en");
+  const genericNameIdx = header.findIndex(h => h.toLowerCase() === "scientific_name");
   const manufacturerIdx = header.findIndex(h => h.toLowerCase().includes("manufacturer"));
-  const categoryIdx = header.findIndex(h => h.toLowerCase().includes("category"));
-  const formIdx = header.findIndex(h => h.toLowerCase().includes("form"));
-  const priceIdx = header.findIndex(h => h.toLowerCase().includes("price"));
+  const categoryIdx = header.findIndex(h => h.toLowerCase().includes("drug_class"));
+  const formIdx = header.findIndex(h => h.toLowerCase().includes("route"));
+
+  if (tradeNameIdx === -1 || genericNameIdx === -1) {
+    console.error("❌ Required columns (commercial_name_en, scientific_name) not found in CSV.");
+    process.exit(1);
+  }
 
   const dataLines = lines.slice(1);
-  
   let imported = 0;
   let skipped = 0;
-  const errors = [];
+  const batchData = [];
 
   for (let i = 0; i < dataLines.length; i++) {
     const parts = parseCSVLine(dataLines[i]);
-    
-    if (parts.length < 2) {
-      skipped++;
-      continue;
-    }
-
-    const tradeName = tradeNameIdx >= 0 ? parts[tradeNameIdx] : "";
-    const genericName = genericNameIdx >= 0 ? parts[genericNameIdx] : "";
+    const tradeName = parts[tradeNameIdx] || "";
+    const genericName = parts[genericNameIdx] || "";
     
     if (!tradeName || !genericName) {
       skipped++;
@@ -76,57 +71,55 @@ async function main() {
     const manufacturer = manufacturerIdx >= 0 ? parts[manufacturerIdx] : null;
     const category = categoryIdx >= 0 ? parts[categoryIdx] : null;
     const form = formIdx >= 0 ? parts[formIdx] : null;
-    const price = priceIdx >= 0 ? parseFloat(parts[priceIdx]) || null : null;
-    // Build notes from category and form
     const notesParts = [category, form].filter(Boolean);
     const notes = notesParts.length > 0 ? notesParts.join(" | ") : null;
 
-    try {
-      const { db } = await import("../src/lib/offline/db.js");
-      await db.open();
+    batchData.push({
+      tradeName,
+      genericName,
+      manufacturer: manufacturer || null,
+      notes: notes || null,
+    });
+  }
 
-      const id = crypto.randomUUID();
-      const now = new Date();
+  try {
+    console.log(`Fetching existing medicines from PostgreSQL to prevent duplicates...`);
+    const existingMedicines = await prisma.medicine.findMany({ select: { tradeName: true, genericName: true } });
+    const existingSet = new Set(existingMedicines.map(m => `${m.tradeName.toLowerCase()}|${m.genericName.toLowerCase()}`));
 
-      await prisma.medicine.create({
-        id,
-        tradeName,
-        genericName,
-        manufacturer: manufacturer || undefined,
-        barcode: null,
-        notes: notes || undefined,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      imported++;
-    } catch (err) {
-      if (err.name === "ConstraintError" || (err.message && err.message.includes("unique"))) {
+    const newMedicines = batchData.filter(m => {
+      const key = `${m.tradeName.toLowerCase()}|${m.genericName.toLowerCase()}`;
+      if (existingSet.has(key)) {
         skipped++;
-      } else {
-        errors.push(`Line ${i + 2}: ${tradeName} - ${err.message}`);
+        return false;
       }
-    }
-  }
+      existingSet.add(key);
+      return true;
+    });
 
-  console.log("");
-  console.log("═════════════════════════════════════════");
-  console.log("  MEDICINE IMPORT RESULTS");
-  console.log("═════════════════════════════════════");
-  console.log("");
-  console.log(`  ✅ Imported: ${imported}`);
-  console.log(`  ⏭️  Skipped: ${skipped} (duplicates)`);
-  
-  if (errors.length > 0) {
-    console.log(`  ❌ Errors: ${errors.length}`);
-    errors.forEach(e => console.log(`     - ${e}`));
+    console.log(`Found ${newMedicines.length} new medicines to import. Inserting into PostgreSQL...`);
+
+    const chunkSize = 1000;
+    for (let i = 0; i < newMedicines.length; i += chunkSize) {
+      const chunk = newMedicines.slice(i, i + chunkSize);
+      await prisma.medicine.createMany({ data: chunk });
+      imported += chunk.length;
+      console.log(`Imported ${imported}/${newMedicines.length}...`);
+    }
+
+  } catch (err) {
+    console.error("Error during database insert:", err);
+  } finally {
+    console.log("");
+    console.log("═════════════════════════════════════════");
+    console.log("  MEDICINE IMPORT RESULTS");
+    console.log("═════════════════════════════════════");
+    console.log(`  ✅ Imported: ${imported}`);
+    console.log(`  ⏭️  Skipped: ${skipped} (duplicates or invalid)`);
+    console.log("");
   }
-  
-  console.log("");
 }
 
 main()
-  .catch(err => {
-    console.error("Fatal error:", err);
-    process.exit(1);
-  });
+  .catch(err => { console.error("Fatal error:", err); process.exit(1); })
+  .finally(async () => { await prisma.$disconnect(); });

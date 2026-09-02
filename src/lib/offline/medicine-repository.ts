@@ -48,6 +48,7 @@ function toMedicineWithRelations(
     tradeName: m.tradeName,
     genericName: m.genericName,
     manufacturer: m.manufacturer || "",
+    barcode: m.barcode || undefined, // أضف هذا السطر
     notes: m.notes || "",
     archivedAt: m.archivedAt ?? null,
     createdAt: m.createdAt,
@@ -332,32 +333,27 @@ export async function searchMedicines(
   if (query.length < 2) return [];
 
   const db = await getDb();
-  const allMedicines = await db.medicines.toArray();
   const normalizedQuery = normalizeSearchText(query);
 
-  const results: MedicineSearchResult[] = [];
+  // Using Dexie filter is much faster for 25k+ records than toArray()
+  const results = await db.medicines
+    .filter((m) => {
+      if (m.archivedAt) return false;
+      const tradeMatch = normalizeSearchText(m.tradeName).includes(normalizedQuery);
+      const genericMatch = normalizeSearchText(m.genericName).includes(normalizedQuery);
+      const barcodeMatch = m.barcode ? m.barcode.includes(query) : false;
+      return tradeMatch || genericMatch || barcodeMatch;
+    })
+    .limit(limit)
+    .toArray();
 
-  for (const m of allMedicines) {
-    if (m.archivedAt) continue;
-
-    const tradeMatch = normalizeSearchText(m.tradeName).includes(normalizedQuery);
-    const genericMatch = normalizeSearchText(m.genericName).includes(normalizedQuery);
-    const barcodeMatch = m.barcode ? m.barcode.includes(query) : false;
-
-    if (tradeMatch || genericMatch || barcodeMatch) {
-      results.push({
-        id: m.id!,
-        tradeName: m.tradeName,
-        genericName: m.genericName,
-        manufacturer: m.manufacturer || undefined,
-        barcode: m.barcode || undefined,
-      });
-
-      if (results.length >= limit) break;
-    }
-  }
-
-  return results;
+  return results.map((m) => ({
+    id: m.id!,
+    tradeName: m.tradeName,
+    genericName: m.genericName,
+    manufacturer: m.manufacturer || undefined,
+    barcode: m.barcode || undefined,
+  }));
 }
 
 /**
@@ -380,7 +376,6 @@ export async function findMedicineByBarcode(
     barcode: medicine.barcode || undefined,
   };
 }
-
 
 /* ------------------------------------------------------------------ */
 /*  Internal helpers                                                   */
@@ -445,4 +440,49 @@ async function attachRelations(
       classesByMed.get(m.id!) || []
     )
   );
+}
+
+/**
+ * Pulls medicine catalog from server API and stores it in local IndexedDB.
+ * This runs on app load to ensure offline availability.
+ */
+export async function syncMedicinesFromServer(): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (!navigator.onLine) return;
+
+  try {
+    const response = await fetch("/api/medicines");
+    if (!response.ok) return;
+    
+    const serverMedicines = await response.json();
+    if (!Array.isArray(serverMedicines) || serverMedicines.length === 0) return;
+
+    const db = await getDb();
+    const localCount = await db.medicines.count();
+    
+    // If local count matches server count, assume synced.
+    if (localCount === serverMedicines.length) {
+      console.log("Medicine catalog already synced.");
+      return;
+    }
+
+    console.log(`Syncing ${serverMedicines.length} medicines from server to IndexedDB...`);
+    
+    const dexieMedicines = serverMedicines.map((m: any) => ({
+      id: m.id,
+      tradeName: m.tradeName,
+      genericName: m.genericName,
+      manufacturer: m.manufacturer || undefined,
+      barcode: m.barcode || undefined,
+      notes: m.notes || undefined,
+      archivedAt: m.archivedAt ? new Date(m.archivedAt) : undefined,
+      createdAt: new Date(m.createdAt),
+      updatedAt: new Date(m.updatedAt),
+    }));
+
+    await db.medicines.bulkPut(dexieMedicines);
+    console.log("Medicine catalog sync complete.");
+  } catch (error) {
+    console.error("Failed to sync medicines from server:", error);
+  }
 }

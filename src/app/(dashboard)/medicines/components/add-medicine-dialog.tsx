@@ -9,7 +9,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { MedicineForm } from "./medicine-form";
-import { createMedicine, ensureSeedData } from "@/lib/offline/medicine-repository";
+import { createMedicine, updateMedicine, ensureSeedData } from "@/lib/offline/medicine-repository";
 import type { CategoryItem, PharmacologicalClassItem, MedicineFormData } from "@/types";
 
 interface AddMedicineDialogProps {
@@ -33,7 +33,13 @@ export function AddMedicineDialog({
     setSubmitting(true);
     try {
       await ensureSeedData();
-      await createMedicine(data);
+      if (data.id) {
+        // إذا كان الدواء موجود مسبقاً (تم اختياره من البحث)، قم بتحديثه
+        await updateMedicine(data.id, data);
+      } else {
+        // إذا كان جديداً، قم بإنشائه
+        await createMedicine(data);
+      }
       onOpenChange(false);
       onSaved();
     } finally {
@@ -47,7 +53,7 @@ export function AddMedicineDialog({
         <DialogHeader>
           <DialogTitle>Add Medicine</DialogTitle>
           <DialogDescription>
-            Add a new medicine to the system.
+            Search for an existing medicine or add a new one to the system.
           </DialogDescription>
         </DialogHeader>
         <MedicineForm
