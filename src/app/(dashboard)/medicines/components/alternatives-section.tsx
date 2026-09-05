@@ -117,7 +117,7 @@ export function AlternativesSection({ medicineId, onSavedLocally }: Alternatives
         medicineId={medicineId}
         open={showAdd}
         onOpenChange={setShowAdd}
-        onAdded={handleAdded}
+        onSaved={handleAdded}
       />
     </>
   );
