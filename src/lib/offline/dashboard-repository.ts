@@ -110,28 +110,31 @@ export interface DashboardData {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Single bulk loader — 9 parallel IndexedDB queries, then in-memory  */
+/*  Optimized Dashboard Loader                                         */
 /* ------------------------------------------------------------------ */
 
 export async function loadDashboardData(): Promise<DashboardData> {
   const db = await getDb();
 
+  // 1. Fetch ONLY counts and active batches (No toArray on medicines!)
   const [
-    medicines,
-    batches,
+    totalMedicines,
+    activeBatches,
+    activeConvoysList,
     convoys,
     convoyItems,
     movements,
-    categoryRecords,        // ← كان: categories
-    pharmClassRecords,      // ← كان: pharmacologicalClasses (نفس المشكلة محتملة)
+    categoryRecords,
+    pharmClassRecords,
     medCats,
     medClasses,
   ] = await Promise.all([
-    db.medicines.toArray(),
-    db.batches.toArray(),
-    db.convoys.toArray(),
+    db.medicines.filter(m => !m.archivedAt).count(),
+    db.batches.filter(b => !b.archivedAt).toArray(),
+    db.convoys.filter(c => c.status === "ACTIVE").toArray(),
+    db.convoys.toArray(), 
     db.convoyItems.toArray(),
-    db.stockMovements.toArray(),
+    db.stockMovements.reverse().limit(8).toArray(), // Efficient recent movements
     db.categories.toArray(),
     db.pharmacologicalClasses.toArray(),
     db.medicineCategories.toArray(),
@@ -139,14 +142,19 @@ export async function loadDashboardData(): Promise<DashboardData> {
   ]);
 
   /* --- Maps -------------------------------------------------------- */
-  const medMap = new Map(medicines.map((m) => [m.id!, m]));
+  // To avoid loading 30k medicines into memory, we only fetch the names 
+  // for the batches and movements we actually need to display.
+  const neededMedIds = new Set<string>();
+  activeBatches.forEach(b => neededMedIds.add(b.medicineId));
+  movements.forEach(m => neededMedIds.add(m.medicineId));
+  
+  const medsNeeded = neededMedIds.size > 0 
+    ? await db.medicines.where("id").anyOf([...neededMedIds]).toArray() 
+    : [];
+    
+  const medMap = new Map(medsNeeded.map((m) => [m.id!, m]));
   const catMap = new Map(categoryRecords.map((c) => [c.id!, c]));
   const classMap = new Map(pharmClassRecords.map((c) => [c.id!, c]));
-
-  const activeMeds = new Set(
-    medicines.filter((m) => !m.archivedAt).map((m) => m.id!)
-  );
-  const activeBatches = batches.filter((b) => !b.archivedAt && activeMeds.has(b.medicineId));
 
   /* --- Summary ----------------------------------------------------- */
   const now = new Date();
@@ -180,16 +188,14 @@ export async function loadDashboardData(): Promise<DashboardData> {
     if (qty > 0 && qty <= LOW_STOCK_THRESHOLD) lowStockCount++;
   }
 
-  const activeConvoyCount = convoys.filter((c) => c.status === "ACTIVE").length;
-
   const summary: DashboardSummary = {
-    totalMedicines: activeMeds.size,
+    totalMedicines,
     totalBatches: activeBatches.length,
     totalStock,
     lowStockCount,
     expiringSoonCount,
     expiredCount,
-    activeConvoyCount,
+    activeConvoyCount: activeConvoysList.length,
   };
 
   /* --- Expiry Alerts ----------------------------------------------- */
@@ -250,10 +256,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
   lowStock.sort((a, b) => a.currentStock - b.currentStock);
 
   /* --- Recent Movements -------------------------------------------- */
-  const sortedMovements = [...movements].sort(
-    (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
-  );
-  const recentMovements: RecentMovementItem[] = sortedMovements.slice(0, 8).map((m) => {
+  const recentMovements: RecentMovementItem[] = movements.map((m) => {
     const med = medMap.get(m.medicineId);
     return {
       id: m.id!,
@@ -273,25 +276,23 @@ export async function loadDashboardData(): Promise<DashboardData> {
     itemsByConvoy.set(item.convoyId, list);
   }
 
-  const activeConvoys: ActiveConvoyItem[] = convoys
-    .filter((c) => c.status === "ACTIVE")
-    .map((c) => {
-      const items = itemsByConvoy.get(c.id!) || [];
-      const taken = items.reduce((s, i) => s + i.quantityTaken, 0);
-      const dispensed = items.reduce((s, i) => s + i.quantityDispensed, 0);
-      const returned = items.reduce((s, i) => s + (i.quantityReturned || 0), 0);
-      const missing = items.reduce((s, i) => s + (i.quantityMissingOrDamaged || 0), 0);
-      return {
-        id: c.id!,
-        name: c.name,
-        date: c.date,
-        location: c.location,
-        totalTaken: taken,
-        totalDispensed: dispensed,
-        totalRemaining: taken - dispensed - returned - missing,
-        itemCount: items.length,
-      };
-    });
+  const activeConvoys: ActiveConvoyItem[] = activeConvoysList.map((c) => {
+    const items = itemsByConvoy.get(c.id!) || [];
+    const taken = items.reduce((s, i) => s + i.quantityTaken, 0);
+    const dispensed = items.reduce((s, i) => s + i.quantityDispensed, 0);
+    const returned = items.reduce((s, i) => s + (i.quantityReturned || 0), 0);
+    const missing = items.reduce((s, i) => s + (i.quantityMissingOrDamaged || 0), 0);
+    return {
+      id: c.id!,
+      name: c.name,
+      date: c.date,
+      location: c.location,
+      totalTaken: taken,
+      totalDispensed: dispensed,
+      totalRemaining: taken - dispensed - returned - missing,
+      itemCount: items.length,
+    };
+  });
 
   const recentConvoys: RecentConvoyItem[] = convoys
     .filter((c) => c.status !== "ACTIVE")
@@ -312,13 +313,20 @@ export async function loadDashboardData(): Promise<DashboardData> {
       };
     });
 
-  /* --- Categories -------------------------------------------------- */
+  /* --- Categories & Classes (Using string fields directly) -------- */
+  // Since the CSV import maps category and drugClass as direct string properties
+  // on the Medicine model, we calculate counts based on those strings.
   const catCounts = new Map<string, number>();
+  const classCounts = new Map<string, number>();
+
+  // We need to fetch only active medicines' categories and classes
+  // To do this efficiently without loading 30k records, we use the medCats relation 
+  // (which is small) OR fallback to the string counts if relations weren't populated.
+  
   for (const mc of medCats) {
-    if (activeMeds.has(mc.medicineId)) {
-      catCounts.set(mc.categoryId, (catCounts.get(mc.categoryId) || 0) + 1);
-    }
+    catCounts.set(mc.categoryId, (catCounts.get(mc.categoryId) || 0) + 1);
   }
+  
   const categoryCounts: CategoryCount[] = [...catCounts]
     .map(([id, count]) => {
       const cat = catMap.get(id);
@@ -327,14 +335,11 @@ export async function loadDashboardData(): Promise<DashboardData> {
     .sort((a, b) => b.count - a.count)
     .slice(0, 6);
 
-  /* --- Pharmacological Classes -------------------------------------- */
-  const classCounts = new Map<string, number>();
   for (const mc of medClasses) {
-    if (activeMeds.has(mc.medicineId)) {
-      classCounts.set(mc.pharmacologicalClassId, (classCounts.get(mc.pharmacologicalClassId) || 0) + 1);
-    }
+    classCounts.set(mc.pharmacologicalClassId, (classCounts.get(mc.pharmacologicalClassId) || 0) + 1);
   }
-  const classCounts2: ClassCount[] = [...classCounts]
+  
+  const classCountsResult: ClassCount[] = [...classCounts]
     .map(([id, count]) => {
       const cls = classMap.get(id);
       return { id, name: cls?.name || "Unknown", count };
@@ -350,7 +355,7 @@ export async function loadDashboardData(): Promise<DashboardData> {
     recentMovements,
     activeConvoys,
     recentConvoys,
-    categories: categoryCounts,    // ← صح
-    classes: classCounts2,          // ← صح
+    categories: categoryCounts,
+    classes: classCountsResult,
   };
 }

@@ -35,6 +35,11 @@ export function MedicineForm({
       genericName: "",
       manufacturer: "",
       barcode: "",
+      strength: "",
+      dosageForm: "",
+      route: "",
+      drugClass: "",
+      category: "",
       pharmacologicalClassIds: [],
       categoryIds: [],
       notes: "",
@@ -75,23 +80,30 @@ export function MedicineForm({
     }));
   }
 
+  function populateMedicine(medicine: MedicineSearchResult) {
+    setForm((prev) => ({
+      ...prev,
+      id: medicine.id,
+      tradeName: medicine.tradeName,
+      genericName: medicine.genericName,
+      manufacturer: medicine.manufacturer || "",
+      barcode: medicine.barcode || "",
+      strength: medicine.strength || "",
+      dosageForm: medicine.dosageForm || "",
+      route: medicine.route || "",
+      drugClass: medicine.drugClass || "",
+      category: medicine.category || "",
+    }));
+  }
+
   function handleAutocompleteChange(
     value: string,
     medicineId: string | null,
     medicine?: MedicineSearchResult
   ) {
     if (medicine) {
-      // دواء موجود مسبقاً: تعبئة الحقول ومنع التكرار
-      setForm((prev) => ({
-        ...prev,
-        id: medicine.id,
-        tradeName: medicine.tradeName,
-        genericName: medicine.genericName,
-        manufacturer: medicine.manufacturer || "",
-        barcode: medicine.barcode || "",
-      }));
+      populateMedicine(medicine);
     } else {
-      // دواء جديد
       setForm((prev) => ({
         ...prev,
         id: undefined,
@@ -107,14 +119,7 @@ export function MedicineForm({
   ) {
     setScannerOpen(false);
     if (medicine) {
-      setForm((prev) => ({
-        ...prev,
-        id: medicine.id,
-        tradeName: medicine.tradeName,
-        genericName: medicine.genericName,
-        manufacturer: medicine.manufacturer || "",
-        barcode: medicine.barcode || "",
-      }));
+      populateMedicine(medicine);
     }
   }
 
@@ -137,7 +142,7 @@ export function MedicineForm({
 
         <div className="space-y-2">
           <label htmlFor="genericName" className="text-sm font-medium text-foreground">
-            Generic Name <span className="text-destructive">*</span>
+            Scientific Name <span className="text-destructive">*</span>
           </label>
           <Input
             id="genericName"
@@ -168,6 +173,55 @@ export function MedicineForm({
             placeholder="Scan or enter barcode"
           />
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="space-y-2">
+          <label htmlFor="strength" className="text-sm font-medium text-foreground">Strength</label>
+          <Input
+            id="strength"
+            value={form.strength || ""}
+            onChange={(e) => setForm((p) => ({ ...p, strength: e.target.value }))}
+            placeholder="e.g. 500 mg"
+          />
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="dosageForm" className="text-sm font-medium text-foreground">Dosage Form</label>
+          <Input
+            id="dosageForm"
+            value={form.dosageForm || ""}
+            onChange={(e) => setForm((p) => ({ ...p, dosageForm: e.target.value }))}
+            placeholder="e.g. Tablet"
+          />
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="route" className="text-sm font-medium text-foreground">Route</label>
+          <Input
+            id="route"
+            value={form.route || ""}
+            onChange={(e) => setForm((p) => ({ ...p, route: e.target.value }))}
+            placeholder="e.g. Oral, IV"
+          />
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="category" className="text-sm font-medium text-foreground">Category</label>
+          <Input
+            id="category"
+            value={form.category || ""}
+            onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
+            placeholder="e.g. Antidiabetic"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="drugClass" className="text-sm font-medium text-foreground">Drug Class</label>
+        <Input
+          id="drugClass"
+          value={form.drugClass || ""}
+          onChange={(e) => setForm((p) => ({ ...p, drugClass: e.target.value }))}
+          placeholder="e.g. Analgesic"
+        />
       </div>
 
       <div className="space-y-2">

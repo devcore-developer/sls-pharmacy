@@ -42,7 +42,6 @@ export function MedicineAutocomplete({
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const selectedRef = useRef<HTMLLIElement>(null);
 
-  // Sync external value changes (e.g. parent resets)
   useEffect(() => {
     setQuery(value);
   }, [value]);
@@ -68,7 +67,6 @@ export function MedicineAutocomplete({
     }
   }, []);
 
-  // Debounced search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doSearch(query), 200);
@@ -77,7 +75,6 @@ export function MedicineAutocomplete({
     };
   }, [query, doSearch]);
 
-  // Click outside to close
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (
@@ -92,7 +89,6 @@ export function MedicineAutocomplete({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Scroll selected item into view
   useEffect(() => {
     if (selectedIndex >= 0 && selectedRef.current) {
       selectedRef.current.scrollIntoView({ block: "nearest" });
@@ -142,7 +138,6 @@ export function MedicineAutocomplete({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
     setQuery(newValue);
-    // Clear ID if user actively edits text
     if (medicineId && newValue !== value) {
       onChange(newValue, null);
     }
@@ -242,11 +237,12 @@ export function MedicineAutocomplete({
                   <span className="font-medium text-foreground">
                     {medicine.tradeName}
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    {medicine.genericName}
-                    {medicine.manufacturer
-                      ? ` \u2022 ${medicine.manufacturer}`
-                      : ""}
+                  <span className="text-xs text-muted-foreground truncate">
+                    {[
+                      medicine.genericName,
+                      medicine.strength,
+                      medicine.dosageForm
+                    ].filter(Boolean).join(" · ")}
                   </span>
                 </li>
               ))}

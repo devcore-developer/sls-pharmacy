@@ -11,6 +11,12 @@ export async function GET() {
         manufacturer: true,
         barcode: true,
         notes: true,
+        strength: true,
+        dosageForm: true,
+        route: true,
+        drugClass: true,
+        category: true,
+        isCatalog: true,
         archivedAt: true,
         createdAt: true,
         updatedAt: true,
@@ -18,7 +24,6 @@ export async function GET() {
       orderBy: { tradeName: "asc" },
     });
 
-    // Serialize dates for JSON
     const serialized = medicines.map((m) => ({
       ...m,
       archivedAt: m.archivedAt ? m.archivedAt.toISOString() : null,

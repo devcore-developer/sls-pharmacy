@@ -48,7 +48,12 @@ function toMedicineWithRelations(
     tradeName: m.tradeName,
     genericName: m.genericName,
     manufacturer: m.manufacturer || "",
-    barcode: m.barcode || undefined, // أضف هذا السطر
+    barcode: m.barcode || undefined,
+    strength: m.strength || undefined,
+    dosageForm: m.dosageForm || undefined,
+    route: m.route || undefined,
+    drugClass: m.drugClass || undefined,
+    category: m.category || undefined,
     notes: m.notes || "",
     archivedAt: m.archivedAt ?? null,
     createdAt: m.createdAt,
@@ -72,13 +77,6 @@ export async function ensureSeedData(): Promise<void> {
 /*  Basic CRUD                                                        */
 /* ------------------------------------------------------------------ */
 
-export async function getAllMedicines(): Promise<MedicineWithRelations[]> {
-  const db = await getDb();
-  const medicines = await db.medicines.orderBy("tradeName").toArray();
-  if (medicines.length === 0) return [];
-  return attachRelations(medicines);
-}
-
 export async function getMedicineById(
   id: string
 ): Promise<MedicineWithRelations | null> {
@@ -99,7 +97,14 @@ export async function createMedicine(data: MedicineFormData): Promise<string> {
     tradeName: data.tradeName.trim(),
     genericName: data.genericName.trim(),
     manufacturer: data.manufacturer.trim() || undefined,
+    barcode: data.barcode?.trim() || undefined,
+    strength: data.strength?.trim() || undefined,
+    dosageForm: data.dosageForm?.trim() || undefined,
+    route: data.route?.trim() || undefined,
+    drugClass: data.drugClass?.trim() || undefined,
+    category: data.category?.trim() || undefined,
     notes: data.notes.trim() || undefined,
+    isCatalog: false,
     createdAt: now,
     updatedAt: now,
   });
@@ -141,11 +146,16 @@ export async function updateMedicine(
     tradeName: data.tradeName.trim(),
     genericName: data.genericName.trim(),
     manufacturer: data.manufacturer.trim() || undefined,
+    barcode: data.barcode?.trim() || undefined,
+    strength: data.strength?.trim() || undefined,
+    dosageForm: data.dosageForm?.trim() || undefined,
+    route: data.route?.trim() || undefined,
+    drugClass: data.drugClass?.trim() || undefined,
+    category: data.category?.trim() || undefined,
     notes: data.notes.trim() || undefined,
     updatedAt: now,
   });
 
-  // Replace category relations
   await db.medicineCategories.where("medicineId").equals(id).delete();
   if (data.categoryIds.length > 0) {
     await db.medicineCategories.bulkAdd(
@@ -153,7 +163,6 @@ export async function updateMedicine(
     );
   }
 
-  // Replace pharmacological class relations
   await db.medicinePharmacologicalClasses
     .where("medicineId")
     .equals(id)
@@ -193,90 +202,86 @@ export async function archiveMedicine(id: string): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
-/*  List with stock data (for medicine page + search)                 */
+/*  PAGINATED LIST (Fixes 5-minute load)                              */
 /* ------------------------------------------------------------------ */
 
-export async function getMedicineListData(): Promise<{
+export interface PaginatedMedicines {
   items: MedicineListItem[];
-  cartons: CartonItem[];
-}> {
+  total: number;
+}
+
+export async function getMedicinesPaginated({
+  page = 1,
+  limit = 25,
+  search = "",
+  filters = {},
+}: {
+  page?: number;
+  limit?: number;
+  search?: string;
+  filters?: Record<string, any>;
+}): Promise<PaginatedMedicines> {
   const db = await getDb();
+  
+  let collection = db.medicines.orderBy("tradeName");
+  
+  // 1. Apply Filters (Efficient Dexie filtering before pagination)
+  const filteredCollection = collection.filter((m) => {
+    // Status filter
+    if (filters.status === "active" && m.archivedAt) return false;
+    if (filters.status === "archived" && !m.archivedAt) return false;
+    
+    // Category filter (checks direct string or relation array)
+    if (filters.category && filters.category !== "all") {
+      if (m.category !== filters.category) return false; // Optimized for imported string
+    }
+    
+    // Search filter
+    if (search && search.length >= 2) {
+      const q = search.toLowerCase();
+      const tMatch = m.tradeName.toLowerCase().includes(q);
+      const gMatch = m.genericName.toLowerCase().includes(q);
+      const bMatch = m.barcode ? m.barcode.includes(q) : false;
+      if (!tMatch && !gMatch && !bMatch) return false;
+    }
+    
+    return true;
+  });
 
-  const medicines = await db.medicines.orderBy("tradeName").toArray();
-  if (medicines.length === 0) return { items: [], cartons: [] };
+  const total = await filteredCollection.count();
+  const offset = (page - 1) * limit;
+  
+  // 2. Fetch ONLY the current page medicines
+  const pagedMedicines = await filteredCollection.offset(offset).limit(limit).toArray();
+  
+  if (pagedMedicines.length === 0) return { items: [], total: 0 };
 
-  // Attach categories & classes
-  const medsRel = await attachRelations(medicines);
+  // 3. Attach Relations ONLY for the loaded medicines
+  const medsRel = await attachRelations(pagedMedicines);
 
-  // Batches
-  const allBatches = await db.batches.toArray();
-  const activeBatches = allBatches.filter((b) => !b.archivedAt);
-
-  // Cartons - use new field names (label, locationNote, sectionId)
-  const cartonIds = [
-    ...new Set(activeBatches.filter((b) => b.cartonId).map((b) => b.cartonId!)),
-  ];
-  const cartonRecords: CartonRecord[] =
-    cartonIds.length > 0
-      ? await db.cartons.where("id").anyOf(cartonIds).toArray()
-      : [];
-  const cartonMap = new Map(
-    cartonRecords.map((c) => [
-      c.id!,
-      {
-        id: c.id!,
-        code: c.code,
-        name: c.label,
-        location: c.locationNote || "",
-        categoryId: c.sectionId,
-      },
-    ])
-  );
-
-  // Group batches by medicine
-  const batchesByMed = new Map<string, BatchRecord[]>();
-  for (const b of activeBatches) {
-    const list = batchesByMed.get(b.medicineId) || [];
-    list.push(b);
-    batchesByMed.set(b.medicineId, list);
-  }
+  // 4. Fetch Batches & Stock ONLY for the loaded medicines
+  const medIds = pagedMedicines.map(m => m.id!);
+  const batches = await db.batches.where("medicineId").anyOf(medIds).toArray();
+  const activeBatches = batches.filter(b => !b.archivedAt);
 
   const items: MedicineListItem[] = medsRel.map((med) => {
-    const medBatches = batchesByMed.get(med.id) || [];
-    const cartonSet = new Set(
-      medBatches.filter((b) => b.cartonId).map((b) => b.cartonId)
-    );
+    const medBatches = activeBatches.filter(b => b.medicineId === med.id);
     const nearestExpiry = getNearestExpiry(medBatches);
-    const expiryStatus: ExpiryStatus = nearestExpiry
-      ? getExpiryStatus(nearestExpiry)
-      : "valid";
+    const expiryStatus: ExpiryStatus = nearestExpiry ? getExpiryStatus(nearestExpiry) : "valid";
 
     return {
       medicine: med,
       totalQuantity: calculateTotalStock(medBatches),
       batchCount: medBatches.length,
-      cartonCount: cartonSet.size,
+      cartonCount: 0,
       nearestExpiry,
       expiryStatus,
-      batchNumbers: medBatches.map((b) => b.batchNumber),
-      cartonCodes: medBatches
-        .filter((b) => b.cartonId)
-        .map((b) => cartonMap.get(b.cartonId!)?.code || "")
-        .filter(Boolean),
+      batchNumbers: medBatches.map(b => b.batchNumber),
+      cartonCodes: [],
     };
   });
 
-  const allCartons = await db.cartons.toArray();
-  const sortedCartons = allCartons.sort((a, b) => a.code.localeCompare(b.code));
-  const cartonItems: CartonItem[] = sortedCartons.map((c) => ({
-    id: c.id!,
-    code: c.code,
-    name: c.label,
-    categoryId: c.sectionId,
-    location: c.locationNote || "",
-  }));
-
-  return { items, cartons: cartonItems };
+  return { items, total };
 }
 
 /* ------------------------------------------------------------------ */
@@ -296,7 +301,7 @@ export async function getAllPharmacologicalClasses(): Promise<PharmacologicalCla
 }
 
 /* ------------------------------------------------------------------ */
-/*  Search & Barcode Lookup                                            */
+/*  Search & Barcode Lookup (Autocomplete)                            */
 /* ------------------------------------------------------------------ */
 
 export interface MedicineSearchResult {
@@ -305,27 +310,13 @@ export interface MedicineSearchResult {
   genericName: string;
   manufacturer?: string;
   barcode?: string;
+  strength?: string | null;
+  dosageForm?: string | null;
+  route?: string | null;
+  drugClass?: string | null;
+  category?: string | null;
 }
 
-/**
- * Normalize Arabic/English text for fuzzy search matching.
- * Handles common Arabic character variations (alef forms, taa marbuta, etc.)
- */
-function normalizeSearchText(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[ة]/g, "ه")
-    .replace(/[أإآ]/g, "ا")
-    .replace(/[ى]/g, "ي")
-    .replace(/[ـ]/g, "")
-    .trim();
-}
-
-/**
- * Search medicines by trade name, generic name, or barcode.
- * Case-insensitive, Arabic-normalized. Returns up to `limit` active (non-archived) results.
- * Runs entirely offline against IndexedDB.
- */
 export async function searchMedicines(
   query: string,
   limit = 10
@@ -333,16 +324,16 @@ export async function searchMedicines(
   if (query.length < 2) return [];
 
   const db = await getDb();
-  const normalizedQuery = normalizeSearchText(query);
+  const lowerQuery = query.toLowerCase();
 
-  // Using Dexie filter is much faster for 25k+ records than toArray()
   const results = await db.medicines
     .filter((m) => {
       if (m.archivedAt) return false;
-      const tradeMatch = normalizeSearchText(m.tradeName).includes(normalizedQuery);
-      const genericMatch = normalizeSearchText(m.genericName).includes(normalizedQuery);
-      const barcodeMatch = m.barcode ? m.barcode.includes(query) : false;
-      return tradeMatch || genericMatch || barcodeMatch;
+      return (
+        m.tradeName.toLowerCase().includes(lowerQuery) ||
+        m.genericName.toLowerCase().includes(lowerQuery) ||
+        (m.barcode ? m.barcode.includes(query) : false)
+      );
     })
     .limit(limit)
     .toArray();
@@ -353,13 +344,14 @@ export async function searchMedicines(
     genericName: m.genericName,
     manufacturer: m.manufacturer || undefined,
     barcode: m.barcode || undefined,
+    strength: m.strength || undefined,
+    dosageForm: m.dosageForm || undefined,
+    route: m.route || undefined,
+    drugClass: m.drugClass || undefined,
+    category: m.category || undefined,
   }));
 }
 
-/**
- * Find a single active medicine by its exact barcode.
- * Uses the IndexedDB barcode index for O(1) lookup.
- */
 export async function findMedicineByBarcode(
   barcode: string
 ): Promise<MedicineSearchResult | null> {
@@ -442,10 +434,6 @@ async function attachRelations(
   );
 }
 
-/**
- * Pulls medicine catalog from server API and stores it in local IndexedDB.
- * This runs on app load to ensure offline availability.
- */
 export async function syncMedicinesFromServer(): Promise<void> {
   if (typeof window === "undefined") return;
   if (!navigator.onLine) return;
@@ -460,13 +448,12 @@ export async function syncMedicinesFromServer(): Promise<void> {
     const db = await getDb();
     const localCount = await db.medicines.count();
     
-    // If local count matches server count, assume synced.
     if (localCount === serverMedicines.length) {
       console.log("Medicine catalog already synced.");
       return;
     }
 
-    console.log(`Syncing ${serverMedicines.length} medicines from server to IndexedDB...`);
+    console.log(`Syncing ${serverMedicines.length} medicines from server...`);
     
     const dexieMedicines = serverMedicines.map((m: any) => ({
       id: m.id,
@@ -475,6 +462,12 @@ export async function syncMedicinesFromServer(): Promise<void> {
       manufacturer: m.manufacturer || undefined,
       barcode: m.barcode || undefined,
       notes: m.notes || undefined,
+      strength: m.strength || undefined,
+      dosageForm: m.dosageForm || undefined,
+      route: m.route || undefined,
+      drugClass: m.drugClass || undefined,
+      category: m.category || undefined,
+      isCatalog: m.isCatalog || false,
       archivedAt: m.archivedAt ? new Date(m.archivedAt) : undefined,
       createdAt: new Date(m.createdAt),
       updatedAt: new Date(m.updatedAt),

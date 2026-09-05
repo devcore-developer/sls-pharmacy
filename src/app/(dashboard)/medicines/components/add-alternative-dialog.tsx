@@ -1,118 +1,90 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search } from "lucide-react";
-import { getAllMedicines } from "@/lib/offline/medicine-repository";
-import { addAlternative } from "@/lib/offline/alternative-repository";
-import type { MedicineWithRelations } from "@/types";
+import { MedicineAutocomplete } from "@/components/medicine/medicine-autocomplete";
+import type { MedicineSearchResult } from "@/lib/offline/medicine-repository";
 
 interface AddAlternativeDialogProps {
   medicineId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAdded: () => void;
+  onSaved: () => void;
 }
 
 export function AddAlternativeDialog({
   medicineId,
   open,
   onOpenChange,
-  onAdded,
+  onSaved,
 }: AddAlternativeDialogProps) {
-  const [medicines, setMedicines] = useState<MedicineWithRelations[]>([]);
-  const [search, setSearch] = useState("");
-  const [error, setError] = useState("");
-  const [adding, setAdding] = useState<string | null>(null);
+  const [altMedicine, setAltMedicine] = useState<MedicineSearchResult | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (open) {
-      setError("");
-      setSearch("");
-      getAllMedicines().then(setMedicines);
-    }
-  }, [open]);
-
-  const filtered = search
-    ? medicines.filter(
-        (m) =>
-          m.id !== medicineId &&
-          (m.tradeName.toLowerCase().includes(search.toLowerCase()) ||
-            m.genericName.toLowerCase().includes(search.toLowerCase()))
-      )
-    : medicines.filter((m) => m.id !== medicineId);
-
-  async function handleAdd(med: MedicineWithRelations) {
-    setAdding(med.id);
-    setError("");
+  const handleAdd = async () => {
+    if (!altMedicine) return;
+    setSaving(true);
     try {
-      const result = await addAlternative(medicineId, med.id);
-      if (result.success) {
-        onAdded();
-      } else {
-        setError(result.error || "Failed to add alternative.");
-      }
+      // Use Dexie directly to add the alternative relation
+      const { db } = await import("@/lib/offline/db");
+      await db.medicineAlternatives.add({
+        medicineId: medicineId,
+        alternativeMedicineId: altMedicine.id,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      
+      onSaved();
+      onOpenChange(false);
+      setAltMedicine(null);
+    } catch (error) {
+      console.error("Failed to add alternative:", error);
     } finally {
-      setAdding(null);
+      setSaving(false);
     }
-  }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+      <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add Alternative</DialogTitle>
+          <DialogTitle>Add Alternative Medicine</DialogTitle>
           <DialogDescription>
-            Select a medicine to add as a configured alternative.
+            Search and select an alternative medicine for this item.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search medicines..."
-            className="pl-9 h-9 text-sm"
+        
+        <div className="py-4">
+          <MedicineAutocomplete
+            value={altMedicine?.tradeName || ""}
+            medicineId={altMedicine?.id || null}
+            onChange={(val, id, med) => {
+              if (med) {
+                setAltMedicine(med);
+              } else {
+                setAltMedicine(null);
+              }
+            }}
+            placeholder="Search for alternative medicine..."
           />
         </div>
 
-        {error && <p className="text-xs text-destructive">{error}</p>}
-
-        <div className="max-h-[40vh] overflow-y-auto space-y-1">
-          {filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">No medicines found.</p>
-          ) : (
-            filtered.map((med) => (
-              <div
-                key={med.id}
-                className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 hover:bg-accent/50 transition-colors"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{med.tradeName}</p>
-                  <p className="text-xs text-muted-foreground truncate">{med.genericName}</p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="shrink-0 h-7 text-xs"
-                  onClick={() => handleAdd(med)}
-                  disabled={adding === med.id}
-                >
-                  {adding === med.id ? "..." : "Add"}
-                </Button>
-              </div>
-            ))
-          )}
-        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleAdd} disabled={!altMedicine || saving}>
+            {saving ? "Adding..." : "Add Alternative"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

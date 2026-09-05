@@ -20,14 +20,19 @@ export type StockAvailability = "in_stock" | "low_stock" | "out_of_stock";
 export type ReconciliationStatus = "PENDING" | "PARTIALLY_RECONCILED" | "RECONCILED";
 
 export interface MedicineFormData {
-  id?: string; // أضف هذا السطر
+  id?: string;
   tradeName: string;
   genericName: string;
   manufacturer: string;
-  barcode?: string; // أضف هذا السطر
+  barcode?: string;
+  strength?: string;
+  dosageForm?: string;
+  route?: string;
+  drugClass?: string;
+  category?: string;
+  notes: string;
   pharmacologicalClassIds: string[];
   categoryIds: string[];
-  notes: string;
 }
 
 export interface MedicineWithRelations {
@@ -35,13 +40,31 @@ export interface MedicineWithRelations {
   tradeName: string;
   genericName: string;
   manufacturer: string;
-  barcode?: string; // أضف هذا السطر
+  barcode?: string;
+  strength?: string;
+  dosageForm?: string;
+  route?: string;
+  drugClass?: string;
+  category?: string;
   notes: string;
   archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   categories: CategoryItem[];
   pharmacologicalClasses: PharmacologicalClassItem[];
+}
+
+export interface MedicineSearchResult {
+  id: string;
+  tradeName: string;
+  genericName: string;
+  manufacturer?: string;
+  barcode?: string;
+  strength?: string | null;
+  dosageForm?: string | null;
+  route?: string | null;
+  drugClass?: string | null;
+  category?: string | null;
 }
 
 export interface CategoryItem {

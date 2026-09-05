@@ -11,11 +11,16 @@ export interface MedicineRecord {
   manufacturer?: string;
   barcode?: string;
   notes?: string;
+  strength?: string | null;
+  dosageForm?: string | null;
+  route?: string | null;
+  drugClass?: string | null;
+  category?: string | null;
+  isCatalog?: boolean;
   archivedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
-
 export interface CategoryRecord {
   id?: string;
   name: string;
