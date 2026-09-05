@@ -207,7 +207,7 @@ export function MedicineAutocomplete({
 
       {isOpen && (
         <div
-          className="absolute z-50 mt-1 w-full min-w-[280px] max-h-[240px] overflow-y-auto rounded-md border bg-popover p-1 shadow-md"
+          className="absolute z-50 mt-1 w-full min-w-[280px] max-h-[55vh] md:max-h-[450px] overflow-y-auto rounded-md border bg-popover p-1 shadow-md"
           role="listbox"
         >
           {isSearching ? (

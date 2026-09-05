@@ -44,6 +44,7 @@ import {
 } from "@/lib/offline/stock-utils";
 import { formatDate } from "@/lib/utils";
 import { AdjustStockDialog } from "./components/adjust-stock-dialog";
+import { AddStockDialog } from "./components/add-stock-dialog";
 import type {
   InventoryBatchRow,
   PharmacologicalClassItem,
@@ -97,6 +98,7 @@ export default function InventoryPage() {
   const [filters, setFilters] = useState<InvFilters>(DEFAULT_INV_FILTERS);
   const [showFilterSheet, setShowFilterSheet] = useState(false);
   const [showAdjustDialog, setShowAdjustDialog] = useState(false);
+  const [showAddDialog, setShowAddDialog] = useState(false);
   const [sortKey, setSortKey] = useState<"medicine" | "batch" | "qty" | "expiry">(
     "medicine"
   );
@@ -256,10 +258,15 @@ export default function InventoryPage() {
         title="Inventory"
         description="Track stock levels, batch details, and expiry status."
         action={
-          <Button size="sm" onClick={() => setShowAdjustDialog(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            Adjust Stock
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => setShowAddDialog(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Add Stock
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowAdjustDialog(true)}>
+              Adjust Stock
+            </Button>
+          </div>
         }
       />
 
@@ -556,6 +563,12 @@ export default function InventoryPage() {
         open={showAdjustDialog}
         onOpenChange={setShowAdjustDialog}
         onAdjusted={loadData}
+      />
+
+      <AddStockDialog
+        open={showAddDialog}
+        onOpenChange={setShowAddDialog}
+        onAdded={loadData}
       />
     </div>
   );

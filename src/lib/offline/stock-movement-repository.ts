@@ -424,3 +424,124 @@ export async function getMovementFilterOptions(): Promise<{
     convoys: convoys.map((c) => ({ id: c.id!, name: c.name })),
   };
 }
+
+/* ------------------------------------------------------------------ */
+/*  Direct Add Stock (Manual Inventory Entry)                         */
+/* ------------------------------------------------------------------ */
+
+export async function addDirectStock(params: {
+  medicineId: string;
+  quantity: number;
+  expiryDate: Date;
+  batchNumber?: string;
+  cartonId?: string;
+  reason?: string;
+  notes?: string;
+  userId?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const db = await getDb();
+  const deviceId = getDeviceId();
+
+  if (params.quantity <= 0) {
+    return { success: false, error: "Quantity must be greater than 0." };
+  }
+
+  const expiry = new Date(params.expiryDate);
+  expiry.setHours(0, 0, 0, 0);
+  if (isNaN(expiry.getTime())) {
+    return { success: false, error: "Invalid expiry date." };
+  }
+
+  // If batch number is not provided, use "DIRECT" as the batch identifier
+  const effectiveBatchNumber = params.batchNumber?.trim() || "DIRECT";
+
+  // 1. Find existing batch matching medicine, batchNumber, expiry, and carton
+  const existingBatches = await db.batches.where("medicineId").equals(params.medicineId).toArray();
+  let batch = existingBatches.find(b => 
+    !b.archivedAt && 
+    b.batchNumber === effectiveBatchNumber && 
+    new Date(b.expiryDate).getTime() === expiry.getTime() &&
+    (b.cartonId || "") === (params.cartonId || "")
+  );
+
+  let movementType = "INITIAL_STOCK";
+  let newQuantity = params.quantity;
+
+  if (batch) {
+    // Batch exists, we are adding to it
+    movementType = "STOCK_IN";
+    newQuantity = batch.quantity + params.quantity;
+  } else {
+    // Create a new batch record
+    batch = {
+      id: crypto.randomUUID(),
+      medicineId: params.medicineId,
+      batchNumber: effectiveBatchNumber,
+      quantity: 0, // Will be updated in transaction
+      expiryDate: expiry,
+      cartonId: params.cartonId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  const now = new Date();
+  const movementId = crypto.randomUUID();
+
+  try {
+    await db.transaction(
+      "rw",
+      [db.batches, db.stockMovements, db.syncOperations],
+      async () => {
+        if (movementType === "INITIAL_STOCK") {
+          await db.batches.add(batch!);
+        }
+        
+        await db.batches.update(batch!.id!, {
+          quantity: newQuantity,
+          cartonId: params.cartonId, // Ensure carton is linked
+          updatedAt: now,
+        });
+
+        await db.stockMovements.add({
+          id: movementId,
+          medicineId: params.medicineId,
+          batchId: batch!.id!,
+          type: movementType,
+          quantity: params.quantity,
+          reason: params.reason || "Direct Stock Addition",
+          notes: params.notes,
+          createdAt: now,
+          deviceId,
+          userId: params.userId,
+        });
+
+        await db.syncOperations.add({
+          operationId: crypto.randomUUID(),
+          deviceId,
+          userId: params.userId,
+          entityType: "stockMovement",
+          entityId: movementId,
+          operationType: "create",
+          payload: { ...params, movementType, batchId: batch!.id } as unknown as Record<string, unknown>,
+          createdAt: now,
+          syncStatus: "pending",
+          retryCount: 0,
+        });
+      }
+    );
+
+    await logAudit({
+      userId: params.userId || "",
+      action: "STOCK_ADDED_DIRECT",
+      entityType: "batch",
+      entityId: batch!.id!,
+      metadata: { type: movementType, quantity: params.quantity, reason: params.reason },
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error adding direct stock:", error);
+    return { success: false, error: "Failed to add stock." };
+  }
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, Pencil, Package, MapPin } from "lucide-react";
+import { ArrowLeft, Pencil, Package, MapPin, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -14,6 +14,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { DeactivateCartonDialog } from "../components/deactivate-carton-dialog";
 import { MoveBatchDialog } from "../components/move-batch-dialog";
+import { AddStockDialog } from "../../components/add-stock-dialog";
 import type { CartonDetail, CartonContentItem, LocationHistoryEntry } from "@/types";
 
 export default function CartonDetailPage() {
@@ -25,6 +26,7 @@ export default function CartonDetailPage() {
   const [loading, setLoading] = useState(true);
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const [moveBatch, setMoveBatch] = useState<CartonContentItem | null>(null);
+  const [showAddMedDialog, setShowAddMedDialog] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -122,6 +124,10 @@ export default function CartonDetailPage() {
       {/* Actions */}
       {carton.isActive && (
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => setShowAddMedDialog(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Add Medicine
+          </Button>
           <Button variant="outline" size="sm" asChild>
             <Link href={`/inventory/cartons/${carton.id}/edit`}>
               <Pencil className="h-3.5 w-3.5 mr-1" />
@@ -246,6 +252,15 @@ export default function CartonDetailPage() {
           onMoved={() => handleMoveBatch(moveBatch.batchId, "")}
         />
       )}
+
+      {/* Add Medicine (Add Stock) Dialog */}
+      <AddStockDialog
+        open={showAddMedDialog}
+        onOpenChange={setShowAddMedDialog}
+        onAdded={loadData}
+        presetCartonId={carton.id}
+        presetCartonCode={carton.code}
+      />
     </div>
   );
 }
