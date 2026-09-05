@@ -439,42 +439,58 @@ export async function syncMedicinesFromServer(): Promise<void> {
   if (!navigator.onLine) return;
 
   try {
-    const response = await fetch("/api/medicines");
-    if (!response.ok) return;
-    
-    const serverMedicines = await response.json();
-    if (!Array.isArray(serverMedicines) || serverMedicines.length === 0) return;
-
     const db = await getDb();
-    const localCount = await db.medicines.count();
-    
-    if (localCount === serverMedicines.length) {
-      console.log("Medicine catalog already synced.");
-      return;
+    let hasMore: boolean = true;
+    let cursor: string | null = null;
+    let totalSynced: number = 0;
+
+    console.log("Starting chunked medicine catalog sync...");
+
+    while (hasMore) {
+      const url: string = `/api/medicines${cursor ? `?cursor=${cursor}` : ""}`;
+      const response: Response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
+      }
+      
+      const data: { items: any[]; nextCursor: string | null } = await response.json();
+      const { items, nextCursor } = data;
+      
+      if (!items || items.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      const dexieMedicines = items.map((m: any) => ({
+        id: m.id,
+        tradeName: m.tradeName,
+        genericName: m.genericName,
+        manufacturer: m.manufacturer || undefined,
+        barcode: m.barcode || undefined,
+        notes: m.notes || undefined,
+        strength: m.strength || undefined,
+        dosageForm: m.dosageForm || undefined,
+        route: m.route || undefined,
+        drugClass: m.drugClass || undefined,
+        category: m.category || undefined,
+        isCatalog: m.isCatalog || false,
+        archivedAt: m.archivedAt ? new Date(m.archivedAt) : undefined,
+        createdAt: new Date(m.createdAt),
+        updatedAt: new Date(m.updatedAt),
+      }));
+
+      await db.medicines.bulkPut(dexieMedicines);
+      totalSynced += dexieMedicines.length;
+      
+      if (nextCursor) {
+        cursor = nextCursor;
+      } else {
+        hasMore = false;
+      }
     }
-
-    console.log(`Syncing ${serverMedicines.length} medicines from server...`);
     
-    const dexieMedicines = serverMedicines.map((m: any) => ({
-      id: m.id,
-      tradeName: m.tradeName,
-      genericName: m.genericName,
-      manufacturer: m.manufacturer || undefined,
-      barcode: m.barcode || undefined,
-      notes: m.notes || undefined,
-      strength: m.strength || undefined,
-      dosageForm: m.dosageForm || undefined,
-      route: m.route || undefined,
-      drugClass: m.drugClass || undefined,
-      category: m.category || undefined,
-      isCatalog: m.isCatalog || false,
-      archivedAt: m.archivedAt ? new Date(m.archivedAt) : undefined,
-      createdAt: new Date(m.createdAt),
-      updatedAt: new Date(m.updatedAt),
-    }));
-
-    await db.medicines.bulkPut(dexieMedicines);
-    console.log("Medicine catalog sync complete.");
+    console.log(`Medicine catalog sync complete. Total synced: ${totalSynced}`);
   } catch (error) {
     console.error("Failed to sync medicines from server:", error);
   }
