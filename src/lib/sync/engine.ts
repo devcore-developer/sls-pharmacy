@@ -283,6 +283,18 @@ export const retryAllFailed = () => retryFailed();
 if (typeof window !== "undefined") {
   loadLastSync();
   refreshCounts();
-  window.addEventListener("online", () => updateConnectionState(true));
+  
+  // تحديث حالة الاتصال والمزامنة التلقائية عند العودة أونلاين
+  window.addEventListener("online", () => {
+    updateConnectionState(true);
+    // تأخير بسيط لضمان استقرار الاتصال ثم بدء المزامنة
+    setTimeout(() => syncNow(), 1000);
+  });
+  
   window.addEventListener("offline", () => updateConnectionState(false));
+
+  // المزامنة التلقائية عند فتح التطبيق لأول مرة إذا كان متصلاً بالإنترنت
+  if (navigator.onLine) {
+    setTimeout(() => syncNow(), 2000);
+  }
 }

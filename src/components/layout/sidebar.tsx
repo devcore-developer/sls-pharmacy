@@ -34,8 +34,8 @@ export function Sidebar({ onNavigate, className }: SidebarProps) {
           <Image 
             src="/logo.png" 
             alt="SLS Pharmacy Logo" 
-            width={36} 
-            height={36} 
+            width={40} 
+            height={40} 
             className="rounded-lg object-contain"
           />
         </div>
