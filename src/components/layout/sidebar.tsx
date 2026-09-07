@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import Image from "next/image"; // تم إضافة هذا الاستيراد
 import { cn } from "@/lib/utils";
 import { getVisibleNavItems } from "@/lib/navigation";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -27,9 +28,16 @@ export function Sidebar({ onNavigate, className }: SidebarProps) {
 
   return (
     <aside className={cn("flex h-full flex-col border-r border-border bg-card", className)}>
+      {/* تعديل اللوجو هنا */}
       <div className="flex h-16 items-center gap-3 px-5 border-b border-border">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm shrink-0 shadow-sm">
-          SLS
+        <div className="flex h-9 w-9 items-center justify-center shrink-0">
+          <Image 
+            src="/logo.png" 
+            alt="SLS Pharmacy Logo" 
+            width={36} 
+            height={36} 
+            className="rounded-lg object-contain"
+          />
         </div>
         <div className="flex flex-col min-w-0">
           <span className="text-sm font-semibold text-foreground leading-tight truncate tracking-tight">SLS Pharmacy</span>
