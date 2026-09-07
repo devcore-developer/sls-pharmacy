@@ -37,6 +37,8 @@ export function MedicineAutocomplete({
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [isSearching, setIsSearching] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false); // Flag to prevent search on selection
+  
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -68,12 +70,15 @@ export function MedicineAutocomplete({
   }, []);
 
   useEffect(() => {
+    // Do not trigger search if the input was just updated due to a selection
+    if (isSelecting) return;
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doSearch(query), 200);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, doSearch]);
+  }, [query, doSearch, isSelecting]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -97,11 +102,15 @@ export function MedicineAutocomplete({
 
   const selectMedicine = useCallback(
     (medicine: MedicineSearchResult) => {
+      setIsSelecting(true); // Block search effect
       onChange(medicine.tradeName, medicine.id, medicine);
       setQuery(medicine.tradeName);
       setIsOpen(false);
       setSelectedIndex(-1);
       inputRef.current?.blur();
+
+      // Reset selecting flag after state settles
+      setTimeout(() => setIsSelecting(false), 300);
     },
     [onChange]
   );
@@ -137,6 +146,7 @@ export function MedicineAutocomplete({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
+    setIsSelecting(false); // User is typing, allow search
     setQuery(newValue);
     if (medicineId && newValue !== value) {
       onChange(newValue, null);
@@ -164,7 +174,7 @@ export function MedicineAutocomplete({
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onFocus={() => {
-              if (query.length >= 2 && suggestions.length > 0) {
+              if (query.length >= 2 && suggestions.length > 0 && !isSelecting) {
                 setIsOpen(true);
               }
             }}

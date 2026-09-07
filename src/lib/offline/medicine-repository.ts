@@ -339,21 +339,33 @@ export async function searchMedicines(
   if (query.length < 2) return [];
 
   const db = await getDb();
-  const lowerQuery = query.toLowerCase();
 
-  const results = await db.medicines
-    .filter((m) => {
-      if (m.archivedAt) return false;
-      return (
-        m.tradeName.toLowerCase().includes(lowerQuery) ||
-        m.genericName.toLowerCase().includes(lowerQuery) ||
-        (m.barcode ? m.barcode.includes(query) : false)
-      );
-    })
-    .limit(limit)
-    .toArray();
+  // 1. Use IndexedDB indexes for fast case-insensitive prefix search
+  const [tradeMatches, genericMatches] = await Promise.all([
+    db.medicines.where("tradeName").startsWithIgnoreCase(query).filter(m => !m.archivedAt).toArray(),
+    db.medicines.where("genericName").startsWithIgnoreCase(query).filter(m => !m.archivedAt).toArray(),
+  ]);
 
-  return results.map((m) => ({
+  // 2. Deduplicate by ID (in case a medicine matches both trade and generic)
+  const uniqueMap = new Map<string, MedicineRecord>();
+  for (const m of tradeMatches) {
+    uniqueMap.set(m.id!, m);
+  }
+  for (const m of genericMatches) {
+    if (!uniqueMap.has(m.id!)) {
+      uniqueMap.set(m.id!, m);
+    }
+  }
+
+  // 3. Sort alphabetically by Trade Name (case-insensitive)
+  const results = Array.from(uniqueMap.values()).sort((a, b) =>
+    a.tradeName.localeCompare(b.tradeName, undefined, { sensitivity: "base" })
+  );
+
+  // 4. Apply limit AFTER sorting
+  const limitedResults = results.slice(0, limit);
+
+  return limitedResults.map((m) => ({
     id: m.id!,
     tradeName: m.tradeName,
     genericName: m.genericName,
@@ -366,7 +378,6 @@ export async function searchMedicines(
     category: m.category || undefined,
   }));
 }
-
 export async function findMedicineByBarcode(
   barcode: string
 ): Promise<MedicineSearchResult | null> {
