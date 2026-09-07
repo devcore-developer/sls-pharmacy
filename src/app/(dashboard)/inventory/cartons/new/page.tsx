@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,29 +12,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getSections, createCarton } from "@/lib/offline/warehouse-repository";
-import { useRouter, useSearchParams } from "next/navigation";
+import { createCarton } from "@/lib/offline/warehouse-repository";
+import { useRouter } from "next/navigation";
+
+// قائمة التخصصات والفئات التابعة لها (مرتبة أبجدياً)
+const MEDICAL_SPECIALTIES: Record<string, string[]> = {
+  "Cardiology": ["Hypertension", "Cholesterol & Lipids", "Heart Failure", "Antiplatelets"],
+  "Endocrinology": ["Diabetes", "Thyroid Disorders", "Osteoporosis"],
+  "Gastroenterology": ["Acidity & Ulcers", "Constipation", "Diarrhea & Vomiting", "Liver & Gallbladder"],
+  "General": ["Pain Killers", "Antibiotics", "Vitamins & Supplements", "Cold & Flu", "First Aid"],
+  "Neurology & Psychiatry": ["Epilepsy", "Depression & Anxiety", "Sleep Disorders", "Pain & Migraine"],
+  "Respiratory": ["Asthma & COPD", "Cough & Cold", "Allergies"],
+};
 
 export default function NewCartonPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const preselectedSection = searchParams.get("sectionId") || "";
 
-  const [sections, setSections] = useState<Array<{ id: string; name: string; code: string }>>([]);
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [code, setCode] = useState("");
-  const [label, setLabel] = useState("");
-  const [sectionId, setSectionId] = useState(preselectedSection);
+  const [specialty, setSpecialty] = useState("");
+  const [category, setCategory] = useState("");
   const [locationNote, setLocationNote] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    getSections().then((secs) => {
-      setSections(secs.map((s) => ({ id: s.id, name: s.name, code: s.code })));
-      setLoading(false);
-    });
-  }, []);
+  // جلب الفئات بناءً على التخصص المختار
+  const availableCategories = specialty ? MEDICAL_SPECIALTIES[specialty] : [];
 
   async function handleCreate() {
     setError("");
@@ -45,21 +47,21 @@ export default function NewCartonPage() {
       return;
     }
 
-    if (!label.trim()) {
-      setError("Label is required.");
+    if (!specialty) {
+      setError("Specialty is required.");
       return;
     }
 
-    if (!sectionId) {
-      setError("Section is required.");
+    if (!category) {
+      setError("Category is required.");
       return;
     }
 
     setSubmitting(true);
     const result = await createCarton({
       code: codeTrimmed,
-      label: label.trim(),
-      sectionId,
+      specialty,
+      category,
       locationNote: locationNote.trim(),
     });
     setSubmitting(false);
@@ -70,8 +72,6 @@ export default function NewCartonPage() {
       setError(result.error || "Failed to create carton.");
     }
   }
-
-  if (loading) return null;
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
@@ -88,7 +88,7 @@ export default function NewCartonPage() {
         <div>
           <h1 className="text-xl font-semibold">New Carton</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Add a new carton to organize your warehouse.
+            Add a new carton and assign its medical specialty.
           </p>
         </div>
 
@@ -107,29 +107,45 @@ export default function NewCartonPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="label">
-              Label <span className="text-destructive">*</span>
+            <Label htmlFor="specialty">
+              Specialty <span className="text-destructive">*</span>
             </Label>
-            <Input
-              id="label"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. Cardiology Main"
-            />
+            <Select 
+              value={specialty} 
+              onValueChange={(val) => {
+                setSpecialty(val);
+                setCategory(""); // إعادة تعيين الفئة عند تغيير التخصص
+              }}
+            >
+              <SelectTrigger id="specialty">
+                <SelectValue placeholder="Select specialty..." />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.keys(MEDICAL_SPECIALTIES).sort().map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="section">
-              Section <span className="text-destructive">*</span>
+            <Label htmlFor="category">
+              Category <span className="text-destructive">*</span>
             </Label>
-            <Select value={sectionId} onValueChange={setSectionId}>
-              <SelectTrigger id="section">
-                <SelectValue placeholder="Select section..." />
+            <Select 
+              value={category} 
+              onValueChange={setCategory} 
+              disabled={!specialty}
+            >
+              <SelectTrigger id="category">
+                <SelectValue placeholder="Select category..." />
               </SelectTrigger>
               <SelectContent>
-                {sections.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name} ({s.code})
+                {availableCategories.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -157,7 +173,7 @@ export default function NewCartonPage() {
           </Button>
           <Button
             onClick={handleCreate}
-            disabled={submitting || !code.trim() || !label.trim() || !sectionId}
+            disabled={submitting || !code.trim() || !specialty || !category}
           >
             {submitting ? "Creating..." : "Create Carton"}
           </Button>

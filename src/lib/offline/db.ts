@@ -70,8 +70,10 @@ export interface BatchRecord {
 export interface CartonRecord {
   id?: string;
   code: string;
-  label: string;
-  sectionId?: string;
+  label?: string; // تم الإبقاء عليه لتجنب كسر البيانات القديمة
+  sectionId?: string; // تم الإبقاء عليه لتجنب كسر البيانات القديمة
+  specialty?: string; // الحقل الجديد
+  category?: string; // الحقل الجديد
   locationNote?: string;
   isActive?: boolean;
   createdAt: Date;

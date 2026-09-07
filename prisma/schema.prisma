@@ -202,8 +202,10 @@ model StorageSection {
 model Carton {
   id              String                   @id @default(cuid())
   code            String                   @unique
-  label           String
-  sectionId       String?
+  label           String?                  // سيبقى للحفاظ على التوافق مع الإصدارات السابقة
+  sectionId       String?                  // سيبقى للحفاظ على التوافق مع الإصدارات السابقة
+  specialty       String?                  // الحقل الجديد
+  category        String?                  // الحقل الجديد
   section         StorageSection?          @relation(fields: [sectionId], references: [id])
   locationNote    String?
   isActive        Boolean                  @default(true)
