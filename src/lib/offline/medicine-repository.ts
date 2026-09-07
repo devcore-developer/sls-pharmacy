@@ -71,6 +71,21 @@ export async function ensureSeedData(): Promise<void> {
   if ((await db.pharmacologicalClasses.count()) === 0) {
     await db.pharmacologicalClasses.bulkAdd(seedPharmacologicalClasses);
   }
+
+  // إضافة قسم افتراضي للمخزن إذا لم يوجد أي أقسام
+  if ((await db.storageSections.count()) === 0) {
+    const defaultSectionId = crypto.randomUUID();
+    const now = new Date();
+    await db.storageSections.add({
+      id: defaultSectionId,
+      name: "General",
+      code: "GEN",
+      organizationType: "MIXED",
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ */
