@@ -452,8 +452,8 @@ export async function addDirectStock(params: {
     return { success: false, error: "Invalid expiry date." };
   }
 
-  // If batch number is not provided, use "DIRECT" as the batch identifier
   const effectiveBatchNumber = params.batchNumber?.trim() || "DIRECT";
+  const now = new Date();
 
   // 1. Find existing batch matching medicine, batchNumber, expiry, and carton
   const existingBatches = await db.batches.where("medicineId").equals(params.medicineId).toArray();
@@ -467,81 +467,85 @@ export async function addDirectStock(params: {
   let movementType = "INITIAL_STOCK";
   let newQuantity = params.quantity;
 
-  if (batch) {
-    // Batch exists, we are adding to it
-    movementType = "STOCK_IN";
-    newQuantity = batch.quantity + params.quantity;
-  } else {
-    // Create a new batch record
-    batch = {
-      id: crypto.randomUUID(),
-      medicineId: params.medicineId,
-      batchNumber: effectiveBatchNumber,
-      quantity: 0, // Will be updated in transaction
-      expiryDate: expiry,
-      cartonId: params.cartonId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-  }
-
-  const now = new Date();
   const movementId = crypto.randomUUID();
+  const batchId = batch?.id || crypto.randomUUID();
 
+  // 2. Save to IndexedDB
   try {
     await db.transaction(
       "rw",
       [db.batches, db.stockMovements, db.syncOperations],
       async () => {
-        if (movementType === "INITIAL_STOCK") {
-          await db.batches.add(batch!);
+        if (batch) {
+          // Batch exists, we are adding to it
+          movementType = "STOCK_IN";
+          newQuantity = batch.quantity + params.quantity;
+          
+          await db.batches.update(batchId, {
+            quantity: newQuantity,
+            cartonId: params.cartonId, 
+            updatedAt: now,
+          });
+        } else {
+          // Create a new batch record
+          await db.batches.add({
+            id: batchId,
+            medicineId: params.medicineId,
+            batchNumber: effectiveBatchNumber,
+            quantity: newQuantity, 
+            expiryDate: expiry,
+            cartonId: params.cartonId,
+            createdAt: now,
+            updatedAt: now,
+          });
         }
-        
-        await db.batches.update(batch!.id!, {
-          quantity: newQuantity,
-          cartonId: params.cartonId, // Ensure carton is linked
-          updatedAt: now,
-        });
 
         await db.stockMovements.add({
           id: movementId,
           medicineId: params.medicineId,
-          batchId: batch!.id!,
+          batchId: batchId,
           type: movementType,
           quantity: params.quantity,
           reason: params.reason || "Direct Stock Addition",
           notes: params.notes,
           createdAt: now,
-          deviceId,
+          deviceId: deviceId,
           userId: params.userId,
         });
 
         await db.syncOperations.add({
+          id: crypto.randomUUID(), 
           operationId: crypto.randomUUID(),
-          deviceId,
+          deviceId: deviceId,
           userId: params.userId,
           entityType: "stockMovement",
           entityId: movementId,
           operationType: "create",
-          payload: { ...params, movementType, batchId: batch!.id } as unknown as Record<string, unknown>,
+          payload: { ...params, movementType, batchId } as unknown as Record<string, unknown>,
           createdAt: now,
           syncStatus: "pending",
           retryCount: 0,
         });
       }
     );
+  } catch (dbError) {
+    console.error("Database Error saving direct stock:", dbError);
+    return { success: false, error: "Failed to save stock locally." };
+  }
 
+  // 3. Log Audit (Non-blocking, won't fail the operation if it throws)
+  try {
     await logAudit({
-      userId: params.userId || "",
+      userId: params.userId || "system",
       action: "STOCK_ADDED_DIRECT",
       entityType: "batch",
-      entityId: batch!.id!,
+      entityId: batchId,
       metadata: { type: movementType, quantity: params.quantity, reason: params.reason },
     });
-
-    return { success: true };
-  } catch (error) {
-    console.error("Error adding direct stock:", error);
-    return { success: false, error: "Failed to add stock." };
+  } catch (auditError) {
+    console.error("Failed to log audit for direct stock:", auditError);
+    // We ignore the audit error so the UI remains successful
   }
+
+  return { success: true };
 }
