@@ -13,20 +13,38 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const lastSync = searchParams.get("lastSync") ? new Date(searchParams.get("lastSync") as string) : new Date(0);
+    const limit = 500; // حجام ثابت لكل طلب
 
-    const [batches, stockMovements, cartons] = await Promise.all([
-      prisma.batch.findMany({ where: { updatedAt: { gt: lastSync } }, take: 500 }),
-      prisma.stockMovement.findMany({ where: { createdAt: { gt: lastSync } }, take: 500 }),
-      prisma.carton.findMany({ where: { updatedAt: { gt: lastSync } }, take: 200 }),
+    const [medicines, batches, stockMovements, cartons] = await Promise.all([
+      // إضافة الأدوية مع ترتيبها حسب updatedAt لضمان نجاح الـ Pagination
+      prisma.medicine.findMany({ 
+        where: { updatedAt: { gt: lastSync } }, 
+        take: limit, 
+        orderBy: { updatedAt: "asc" } 
+      }),
+      prisma.batch.findMany({ 
+        where: { updatedAt: { gt: lastSync } }, 
+        take: limit, 
+        orderBy: { updatedAt: "asc" } 
+      }),
+      prisma.stockMovement.findMany({ 
+        where: { createdAt: { gt: lastSync } }, 
+        take: limit, 
+        orderBy: { createdAt: "asc" } 
+      }),
+      prisma.carton.findMany({ 
+        where: { updatedAt: { gt: lastSync } }, 
+        take: limit, 
+        orderBy: { updatedAt: "asc" } 
+      }),
     ]);
 
-    return NextResponse.json({ batches, stockMovements, cartons });
+    return NextResponse.json({ medicines, batches, stockMovements, cartons });
   } catch (error) {
     console.error("Pull sync error:", error);
     return NextResponse.json({ error: "Failed to pull updates" }, { status: 500 });
   }
 }
-
 // POST: Push Sync (Send local changes to server)
 export async function POST(request: NextRequest) {
   try {

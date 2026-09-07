@@ -98,35 +98,88 @@ export async function refreshCounts() {
 async function pullServerChanges() {
   if (!navigator.onLine) return;
   
-  const lastSyncStr = localStorage.getItem(LAST_PULL_KEY) || new Date(0).toISOString();
-  const lastSync = new Date(lastSyncStr);
-
+  let currentLastSyncStr = localStorage.getItem(LAST_PULL_KEY) || new Date(0).toISOString();
+  const limit = 500;
+  
   try {
-    const res = await fetch(`/api/sync?lastSync=${lastSync.toISOString()}`);
-    if (!res.ok) return;
+    let hasMore = true;
     
-    const data = await res.json();
+    while (hasMore) {
+      const res = await fetch(`/api/sync?lastSync=${currentLastSyncStr}`);
+      if (!res.ok) return;
+      
+      const data = await res.json();
+      
+      let maxDate = new Date(currentLastSyncStr);
 
-    if (data.batches?.length > 0) {
-      await db.batches.bulkPut(data.batches.map((b: any) => ({
-        ...b,
-        expiryDate: new Date(b.expiryDate),
-        createdAt: new Date(b.createdAt),
-        updatedAt: new Date(b.updatedAt),
-      })));
-    }
-    if (data.stockMovements?.length > 0) {
-      await db.stockMovements.bulkPut(data.stockMovements.map((m: any) => ({
-        ...m,
-        createdAt: new Date(m.createdAt),
-      })));
-    }
-    if (data.cartons?.length > 0) {
-      await db.cartons.bulkPut(data.cartons.map((c: any) => ({
-        ...c,
-        createdAt: new Date(c.createdAt),
-        updatedAt: new Date(c.updatedAt),
-      })));
+      // 1. Save Medicines
+      if (data.medicines?.length > 0) {
+        await db.medicines.bulkPut(data.medicines.map((m: any) => ({
+          ...m,
+          archivedAt: m.archivedAt ? new Date(m.archivedAt) : undefined,
+          createdAt: new Date(m.createdAt),
+          updatedAt: new Date(m.updatedAt),
+        })));
+        
+        // تحديث أحدث تاريخ للسحب في الجولة التالية
+        for (const m of data.medicines) {
+          const u = new Date(m.updatedAt);
+          if (u > maxDate) maxDate = u;
+        }
+      }
+
+      // 2. Save Batches
+      if (data.batches?.length > 0) {
+        await db.batches.bulkPut(data.batches.map((b: any) => ({
+          ...b,
+          expiryDate: new Date(b.expiryDate),
+          createdAt: new Date(b.createdAt),
+          updatedAt: new Date(b.updatedAt),
+        })));
+        for (const b of data.batches) {
+          const u = new Date(b.updatedAt);
+          if (u > maxDate) maxDate = u;
+        }
+      }
+
+      // 3. Save Stock Movements
+      if (data.stockMovements?.length > 0) {
+        await db.stockMovements.bulkPut(data.stockMovements.map((m: any) => ({
+          ...m,
+          createdAt: new Date(m.createdAt),
+        })));
+        for (const m of data.stockMovements) {
+          const u = new Date(m.createdAt);
+          if (u > maxDate) maxDate = u;
+        }
+      }
+
+      // 4. Save Cartons
+      if (data.cartons?.length > 0) {
+        await db.cartons.bulkPut(data.cartons.map((c: any) => ({
+          ...c,
+          createdAt: new Date(c.createdAt),
+          updatedAt: new Date(c.updatedAt),
+        })));
+        for (const c of data.cartons) {
+          const u = new Date(c.updatedAt);
+          if (u > maxDate) maxDate = u;
+        }
+      }
+
+      // فحص هل لا تزال هناك بيانات إضافية في السيرفر لم يتم سحبها؟
+      const hasMoreMeds = data.medicines?.length === limit;
+      const hasMoreBatches = data.batches?.length === limit;
+      const hasMoreMovements = data.stockMovements?.length === limit;
+      const hasMoreCartons = data.cartons?.length === limit;
+      
+      if (hasMoreMeds || hasMoreBatches || hasMoreMovements || hasMoreCartons) {
+        // إضافة 1 ميلي ثانية لتجنب إعادة سحب آخر سجل في الجولة القادمة
+        maxDate = new Date(maxDate.getTime() + 1);
+        currentLastSyncStr = maxDate.toISOString();
+      } else {
+        hasMore = false;
+      }
     }
 
     localStorage.setItem(LAST_PULL_KEY, new Date().toISOString());
@@ -135,7 +188,6 @@ async function pullServerChanges() {
     console.error("[SYNC] Pull failed:", err);
   }
 }
-
 /* ------------------------------------------------------------------ */
 /*  Sync Now (Push + Pull)                                            */
 /* ------------------------------------------------------------------ */
