@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { PrismaClient } from "@prisma/client";
+import { randomUUID } from "crypto";
 
 const prisma = new PrismaClient();
 
@@ -134,14 +135,22 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("Clearing existing catalog medicines...");
-  await prisma.medicine.deleteMany({ where: { isCatalog: true } });
+  // FIXED: Fetch existing medicines to perform safe upserts and prevent duplicates
+  console.log("Fetching existing catalog medicines to prevent duplicates...");
+  const existingMeds = await prisma.medicine.findMany({
+    where: { isCatalog: true },
+    select: { id: true, tradeName: true, genericName: true }
+  });
+  const medMap = new Map();
+  for (const m of existingMeds) {
+    // Key by Trade Name + Generic Name to identify duplicates
+    medMap.set(`${m.tradeName}|${m.genericName}`, m.id);
+  }
 
   const dataLines = lines.slice(1);
   let imported = 0;
+  let updated = 0;
   let skipped = 0;
-  const batchData = [];
-
   const checkMeds = ["Carboplatin", "Acetamax", "Actozone", "Actrapid", "Acupan"];
 
   for (let i = 0; i < dataLines.length; i++) {
@@ -172,39 +181,58 @@ async function main() {
       continue;
     }
 
-    batchData.push({
-      tradeName: normalized.tradeName,
-      genericName: normalized.genericName,
-      manufacturer: normalized.manufacturer,
-      drugClass: normalized.drugClass,
-      category: normalized.category,
-      strength: normalized.strength,
-      dosageForm: normalized.dosageForm,
-      route: normalized.route,
-      isCatalog: true,
-    });
+    const key = `${normalized.tradeName}|${normalized.genericName}`;
+    const existingId = medMap.get(key);
+
+    try {
+      if (existingId) {
+        // Update existing medicine
+        await prisma.medicine.update({
+          where: { id: existingId },
+          data: {
+            manufacturer: normalized.manufacturer,
+            drugClass: normalized.drugClass,
+            category: normalized.category,
+            strength: normalized.strength,
+            dosageForm: normalized.dosageForm,
+            route: normalized.route,
+          }
+        });
+        updated++;
+      } else {
+        // Create new medicine with deterministic UUID
+        const newId = randomUUID();
+        medMap.set(key, newId);
+        await prisma.medicine.create({
+          data: {
+            id: newId,
+            tradeName: normalized.tradeName,
+            genericName: normalized.genericName,
+            manufacturer: normalized.manufacturer,
+            drugClass: normalized.drugClass,
+            category: normalized.category,
+            strength: normalized.strength,
+            dosageForm: normalized.dosageForm,
+            route: normalized.route,
+            isCatalog: true,
+          }
+        });
+        imported++;
+      }
+    } catch (err) {
+      console.error(`Error processing ${normalized.tradeName}:`, err.message);
+      skipped++;
+    }
   }
 
-  try {
-    console.log(`\nNormalized ${batchData.length} medicines. Inserting into PostgreSQL...`);
-    const chunkSize = 1000;
-    for (let i = 0; i < batchData.length; i += chunkSize) {
-      const chunk = batchData.slice(i, i + chunkSize);
-      await prisma.medicine.createMany({ data: chunk });
-      imported += chunk.length;
-      console.log(`Imported ${imported}/${batchData.length}...`);
-    }
-  } catch (err) {
-    console.error("Error during database insert:", err);
-  } finally {
-    console.log("");
-    console.log("═════════════════════════════════════════");
-    console.log("  MEDICINE IMPORT RESULTS");
-    console.log("═════════════════════════════════════");
-    console.log(`  ✅ Imported: ${imported}`);
-    console.log(`  ⏭️  Skipped: ${skipped} (invalid/missing data)`);
-    console.log("");
-  }
+  console.log("");
+  console.log("═════════════════════════════════════════");
+  console.log("  MEDICINE IMPORT RESULTS (No Duplicates)");
+  console.log("═════════════════════════════════════════");
+  console.log(`  ✅ Imported: ${imported}`);
+  console.log(`  🔄 Updated: ${updated}`);
+  console.log(`  ⏭️  Skipped: ${skipped} (invalid/missing data)`);
+  console.log("");
 }
 
 main()

@@ -65,26 +65,20 @@ function toMedicineWithRelations(
 
 export async function ensureSeedData(): Promise<void> {
   const db = await getDb();
+  
+  // Request persistent storage to prevent mobile browsers from evicting IndexedDB data
+  if (typeof navigator !== "undefined" && navigator.storage && navigator.storage.persist) {
+    const isPersisted = await navigator.storage.persist();
+    if (isPersisted) {
+      console.log("Persistent storage granted. IndexedDB is safe from eviction.");
+    }
+  }
+
   if ((await db.categories.count()) === 0) {
     await db.categories.bulkAdd(seedCategories);
   }
   if ((await db.pharmacologicalClasses.count()) === 0) {
     await db.pharmacologicalClasses.bulkAdd(seedPharmacologicalClasses);
-  }
-
-  // إضافة قسم افتراضي للمخزن إذا لم يوجد أي أقسام
-  if ((await db.storageSections.count()) === 0) {
-    const defaultSectionId = crypto.randomUUID();
-    const now = new Date();
-    await db.storageSections.add({
-      id: defaultSectionId,
-      name: "General",
-      code: "GEN",
-      organizationType: "MIXED",
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    });
   }
 }
 
@@ -242,16 +236,13 @@ export async function getMedicinesPaginated({
   
   // 1. Apply Filters (Efficient Dexie filtering before pagination)
   const filteredCollection = collection.filter((m) => {
-    // Status filter
     if (filters.status === "active" && m.archivedAt) return false;
     if (filters.status === "archived" && !m.archivedAt) return false;
     
-    // Category filter (checks direct string or relation array)
     if (filters.category && filters.category !== "all") {
-      if (m.category !== filters.category) return false; // Optimized for imported string
+      if (m.category !== filters.category) return false;
     }
     
-    // Search filter
     if (search && search.length >= 2) {
       const q = search.toLowerCase();
       const tMatch = m.tradeName.toLowerCase().includes(q);
@@ -358,7 +349,7 @@ export async function searchMedicines(
   return limitedResults.map((m) => ({
     id: m.id!,
     tradeName: m.tradeName,
-    genericName: m.genericName, // Kept for display purposes only
+    genericName: m.genericName,
     manufacturer: m.manufacturer || undefined,
     barcode: m.barcode || undefined,
     strength: m.strength || undefined,
@@ -368,6 +359,7 @@ export async function searchMedicines(
     category: m.category || undefined,
   }));
 }
+
 export async function findMedicineByBarcode(
   barcode: string
 ): Promise<MedicineSearchResult | null> {

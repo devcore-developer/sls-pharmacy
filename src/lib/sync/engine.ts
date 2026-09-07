@@ -30,6 +30,7 @@ export interface SyncResult {
 /* ------------------------------------------------------------------ */
 
 const LAST_SYNC_KEY = "sls-last-sync";
+const LAST_PULL_KEY = "sls-last-pull-sync";
 
 const status: SyncStatus = {
   isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
@@ -91,7 +92,52 @@ export async function refreshCounts() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Sync Now                                                          */
+/*  Pull Sync (Fetch server changes)                                   */
+/* ------------------------------------------------------------------ */
+
+async function pullServerChanges() {
+  if (!navigator.onLine) return;
+  
+  const lastSyncStr = localStorage.getItem(LAST_PULL_KEY) || new Date(0).toISOString();
+  const lastSync = new Date(lastSyncStr);
+
+  try {
+    const res = await fetch(`/api/sync?lastSync=${lastSync.toISOString()}`);
+    if (!res.ok) return;
+    
+    const data = await res.json();
+
+    if (data.batches?.length > 0) {
+      await db.batches.bulkPut(data.batches.map((b: any) => ({
+        ...b,
+        expiryDate: new Date(b.expiryDate),
+        createdAt: new Date(b.createdAt),
+        updatedAt: new Date(b.updatedAt),
+      })));
+    }
+    if (data.stockMovements?.length > 0) {
+      await db.stockMovements.bulkPut(data.stockMovements.map((m: any) => ({
+        ...m,
+        createdAt: new Date(m.createdAt),
+      })));
+    }
+    if (data.cartons?.length > 0) {
+      await db.cartons.bulkPut(data.cartons.map((c: any) => ({
+        ...c,
+        createdAt: new Date(c.createdAt),
+        updatedAt: new Date(c.updatedAt),
+      })));
+    }
+
+    localStorage.setItem(LAST_PULL_KEY, new Date().toISOString());
+    console.log("[SYNC] Pulled server changes successfully.");
+  } catch (err) {
+    console.error("[SYNC] Pull failed:", err);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Sync Now (Push + Pull)                                            */
 /* ------------------------------------------------------------------ */
 
 export async function syncNow(): Promise<SyncResult> {
@@ -109,6 +155,7 @@ export async function syncNow(): Promise<SyncResult> {
 
   const result: SyncResult = { synced: 0, failed: 0, conflicts: 0, errors: [] };
 
+  // 1. Push local changes to server
   try {
     const pending = await db.syncOperations.where("syncStatus").equals("pending").sortBy("createdAt");
 
@@ -188,6 +235,9 @@ export async function syncNow(): Promise<SyncResult> {
     await refreshCounts();
     notify();
   }
+
+  // 2. Pull server changes after pushing
+  await pullServerChanges();
 
   return result;
 }
@@ -276,6 +326,7 @@ export function formatOperationLabel(op: SyncOperationUI): string {
   return `${type} ${entity}`;
 }
 export const retryAllFailed = () => retryFailed();
+
 /* ------------------------------------------------------------------ */
 /*  Init                                                               */
 /* ------------------------------------------------------------------ */
@@ -284,16 +335,13 @@ if (typeof window !== "undefined") {
   loadLastSync();
   refreshCounts();
   
-  // تحديث حالة الاتصال والمزامنة التلقائية عند العودة أونلاين
   window.addEventListener("online", () => {
     updateConnectionState(true);
-    // تأخير بسيط لضمان استقرار الاتصال ثم بدء المزامنة
     setTimeout(() => syncNow(), 1000);
   });
   
   window.addEventListener("offline", () => updateConnectionState(false));
 
-  // المزامنة التلقائية عند فتح التطبيق لأول مرة إذا كان متصلاً بالإنترنت
   if (navigator.onLine) {
     setTimeout(() => syncNow(), 2000);
   }
