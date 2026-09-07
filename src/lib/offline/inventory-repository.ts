@@ -154,7 +154,7 @@ export async function getInventoryBatchData(): Promise<{
     cartons: allCartons.map((c) => ({
       id: c.id!,
       code: c.code,
-      label: c.label,
+      label: c.label || "",
     })),
   };
 }
