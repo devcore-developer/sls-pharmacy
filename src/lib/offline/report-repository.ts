@@ -44,12 +44,15 @@ export async function getReportFilterOptions(): Promise<ReportFilterOptions> {
       .sort((a, b) => a.tradeName.localeCompare(b.tradeName)),
     categories: categories.map((c) => ({ id: c.id!, name: c.name })).sort((a, b) => a.name.localeCompare(b.name)),
     pharmacologicalClasses: pharmacologicalClasses.map((c) => ({ id: c.id!, name: c.name })).sort((a, b) => a.name.localeCompare(b.name)),
-    cartons: activeCartons.map((c) => ({ id: c.id!, code: c.code, label: c.label })).sort((a, b) => a.code.localeCompare(b.code)),
+    cartons: activeCartons
+      .map((c) => ({ id: c.id!, code: c.code, label: c.label || "" }))
+      .sort((a, b) => a.code.localeCompare(b.code)),
     sections: activeSections.map((s) => ({ id: s.id!, name: s.name })).sort((a, b) => a.name.localeCompare(b.name)),
     convoys: convoys.map((c) => ({ id: c.id!, name: c.name })).sort((a, b) => a.name.localeCompare(b.name)),
     users: activeUsers.map((u) => ({ id: u.id!, name: u.name })).sort((a, b) => a.name.localeCompare(b.name)),
   };
 }
+
 /* ------------------------------------------------------------------ */
 /*  Inventory Report                                                   */
 /* ------------------------------------------------------------------ */
