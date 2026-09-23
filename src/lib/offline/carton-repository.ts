@@ -6,6 +6,7 @@ export async function createCarton(data: {
   code: string;
   label?: string;
   specialty?: string;
+  category?: string;
   sectionId?: string;
   locationNote?: string;
   userId?: string;
@@ -17,7 +18,8 @@ export async function createCarton(data: {
     id,
     code: data.code,
     label: data.label || undefined,
-    specialty: data.specialty || undefined, // حفظ التخصص
+    specialty: data.specialty || undefined,
+    category: data.category || undefined,
     sectionId: data.sectionId || undefined,
     locationNote: data.locationNote || undefined,
     isActive: true,
@@ -40,6 +42,7 @@ export async function updateCarton(id: string, data: {
   code?: string;
   label?: string;
   specialty?: string;
+  category?: string;
   sectionId?: string;
   locationNote?: string;
   isActive?: boolean;
@@ -50,7 +53,8 @@ export async function updateCarton(id: string, data: {
   await db.cartons.update(id, {
     code: data.code,
     label: data.label || undefined,
-    specialty: data.specialty || undefined, // تحديث التخصص
+    specialty: data.specialty || undefined,
+    category: data.category || undefined,
     sectionId: data.sectionId || undefined,
     locationNote: data.locationNote || undefined,
     isActive: data.isActive,
@@ -64,4 +68,9 @@ export async function updateCarton(id: string, data: {
     payload: data,
     deviceId: typeof window !== "undefined" ? getDeviceId() : undefined,
   });
+}
+
+export async function getAllCartonsSimple(): Promise<Array<{ id: string; code: string; label: string }>> {
+  const { getAllCartonsSimple: getSimple } = await import("./warehouse-repository");
+  return getSimple();
 }
