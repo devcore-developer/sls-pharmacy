@@ -98,14 +98,16 @@ export async function refreshCounts() {
 async function pullServerChanges() {
   if (!navigator.onLine) return;
   
-  const lastSyncStr = localStorage.getItem(LAST_PULL_KEY) || new Date(0).toISOString();
-  let cursors = {
-    medicines: "",
-    batches: "",
-    stockMovements: "",
-    cartons: ""
-  };
-  let lastServerTime = new Date().toISOString(); // <--- أضف هذا السطر
+  // قراءة الـ Cursors الخاصة بكل نوع بشكل منفصل
+  let medLastSync = localStorage.getItem("sls-med-lastSync") || new Date(0).toISOString();
+  let batLastSync = localStorage.getItem("sls-bat-lastSync") || new Date(0).toISOString();
+  let movLastSync = localStorage.getItem("sls-mov-lastSync") || new Date(0).toISOString();
+  let carLastSync = localStorage.getItem("sls-car-lastSync") || new Date(0).toISOString();
+  
+  let medCursor = "";
+  let batCursor = "";
+  let movCursor = "";
+  let carCursor = "";
   
   try {
     let hasMore = true;
@@ -113,11 +115,14 @@ async function pullServerChanges() {
 
     while (hasMore) {
       const params = new URLSearchParams({
-        lastSync: lastSyncStr,
-        medCursor: cursors.medicines,
-        batCursor: cursors.batches,
-        movCursor: cursors.stockMovements,
-        carCursor: cursors.cartons,
+        medLastSync,
+        batLastSync,
+        movLastSync,
+        carLastSync,
+        medCursor,
+        batCursor,
+        movCursor,
+        carCursor,
       });
 
       const res = await fetch(`/api/sync?${params.toString()}`, {
@@ -133,11 +138,6 @@ async function pullServerChanges() {
       }
       
       const data = await res.json();
-      
-      // تحديث توقيت السيرفر في كل مرة ننجح فيها في جلب البيانات
-      if (data.serverTime) {
-        lastServerTime = data.serverTime;
-      }
 
       try {
         if (data.medicines?.length > 0) {
@@ -181,14 +181,33 @@ async function pullServerChanges() {
         status.state = "error";
         status.errorMessage = "Storage limit reached or DB error.";
         notify();
-        return;
+        return; 
       }
 
-      cursors = data.nextCursors;
+      // تحديث الـ Cursors والـ LastSync لكل نوع
+      medCursor = data.nextCursors.medicines;
+      batCursor = data.nextCursors.batches;
+      movCursor = data.nextCursors.stockMovements;
+      carCursor = data.nextCursors.cartons;
+
+      medLastSync = data.nextLastSync.medicines;
+      batLastSync = data.nextLastSync.batches;
+      movLastSync = data.nextLastSync.stockMovements;
+      carLastSync = data.nextLastSync.cartons;
+
       hasMore = data.hasMore;
     }
 
-    localStorage.setItem(LAST_PULL_KEY, lastServerTime); // <--- استخدام توقيت السيرفر هنا
+    // حفظ الـ Cursors المنفصلة للاستخدام في المرة القادمة
+    localStorage.setItem("sls-med-lastSync", medLastSync);
+    localStorage.setItem("sls-bat-lastSync", batLastSync);
+    localStorage.setItem("sls-mov-lastSync", movLastSync);
+    localStorage.setItem("sls-car-lastSync", carLastSync);
+    
+    // مسح الـ Legacy Key القديم
+    localStorage.removeItem("sls-last-pull-sync");
+    localStorage.removeItem("sls-last-sync");
+
     console.log(`[SYNC] Pulled server changes successfully. Total records synced: ${totalSynced}`);
     
     if (totalSynced > 0 && typeof window !== "undefined") {

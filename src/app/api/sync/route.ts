@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { verifyApiAuth } from "@/lib/auth/api-auth";
 
 // GET: Pull Sync (Fetch server changes)
+// GET: Pull Sync (Fetch server changes)
 export async function GET(req: NextRequest) {
-  // 1. التحقق من المصادقة (Authentication)
   const user = await verifyApiAuth(req);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -12,25 +12,35 @@ export async function GET(req: NextRequest) {
 
   try {
     const { searchParams } = new URL(req.url);
-    const lastSync = searchParams.get("lastSync") ? new Date(searchParams.get("lastSync") as string) : new Date(0);
+    
+    // دعم الـ Legacy lastSync للتوافق مع الإصدارات السابقة
+    const globalLastSync = searchParams.get("lastSync");
+    
+    const medLastSync = searchParams.get("medLastSync") || globalLastSync || new Date(0).toISOString();
+    const batLastSync = searchParams.get("batLastSync") || globalLastSync || new Date(0).toISOString();
+    const movLastSync = searchParams.get("movLastSync") || globalLastSync || new Date(0).toISOString();
+    const carLastSync = searchParams.get("carLastSync") || globalLastSync || new Date(0).toISOString();
+
     const limit = 500;
 
-    // Keyset pagination cursors (ID-based)
     const medCursor = searchParams.get("medCursor") || "";
     const batCursor = searchParams.get("batCursor") || "";
     const movCursor = searchParams.get("movCursor") || "";
     const carCursor = searchParams.get("carCursor") || "";
 
-    // 2. منطق المزامنة التزايدية الصحيح
-    // يجلب السجلات التي تم تعديلها بعد lastSync، وكذلك معرفها (id) أكبر من الـ cursor الحالي
     const [medicines, batches, stockMovements, cartons] = await Promise.all([
       prisma.medicine.findMany({
         take: limit,
         orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
         where: {
-          AND: [
-            { updatedAt: { gte: lastSync } },
-            ...(medCursor ? [{ id: { gt: medCursor } }] : [])
+          OR: [
+            { updatedAt: { gt: medLastSync } },
+            {
+              AND: [
+                { updatedAt: { equals: medLastSync } },
+                { id: { gt: medCursor } }
+              ]
+            }
           ]
         }
       }),
@@ -38,9 +48,14 @@ export async function GET(req: NextRequest) {
         take: limit,
         orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
         where: {
-          AND: [
-            { updatedAt: { gte: lastSync } },
-            ...(batCursor ? [{ id: { gt: batCursor } }] : [])
+          OR: [
+            { updatedAt: { gt: batLastSync } },
+            {
+              AND: [
+                { updatedAt: { equals: batLastSync } },
+                { id: { gt: batCursor } }
+              ]
+            }
           ]
         }
       }),
@@ -48,9 +63,14 @@ export async function GET(req: NextRequest) {
         take: limit,
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         where: {
-          AND: [
-            { createdAt: { gte: lastSync } },
-            ...(movCursor ? [{ id: { gt: movCursor } }] : [])
+          OR: [
+            { createdAt: { gt: movLastSync } },
+            {
+              AND: [
+                { createdAt: { equals: movLastSync } },
+                { id: { gt: movCursor } }
+              ]
+            }
           ]
         }
       }),
@@ -58,16 +78,22 @@ export async function GET(req: NextRequest) {
         take: limit,
         orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
         where: {
-          AND: [
-            { updatedAt: { gte: lastSync } },
-            ...(carCursor ? [{ id: { gt: carCursor } }] : [])
+          OR: [
+            { updatedAt: { gt: carLastSync } },
+            {
+              AND: [
+                { updatedAt: { equals: carLastSync } },
+                { id: { gt: carCursor } }
+              ]
+            }
           ]
         }
       }),
     ]);
 
+    const hasNextPage = (arr: any[]) => arr.length === limit;
+
     return NextResponse.json({
-      serverTime: new Date().toISOString(),
       medicines,
       batches,
       stockMovements,
@@ -78,7 +104,13 @@ export async function GET(req: NextRequest) {
         stockMovements: stockMovements.length > 0 ? stockMovements[stockMovements.length - 1].id : movCursor,
         cartons: cartons.length > 0 ? cartons[cartons.length - 1].id : carCursor,
       },
-      hasMore: medicines.length === limit || batches.length === limit || stockMovements.length === limit || cartons.length === limit
+      nextLastSync: {
+        medicines: medicines.length > 0 ? medicines[medicines.length - 1].updatedAt.toISOString() : medLastSync,
+        batches: batches.length > 0 ? batches[batches.length - 1].updatedAt.toISOString() : batLastSync,
+        stockMovements: stockMovements.length > 0 ? stockMovements[stockMovements.length - 1].createdAt.toISOString() : movLastSync,
+        cartons: cartons.length > 0 ? cartons[cartons.length - 1].updatedAt.toISOString() : carLastSync,
+      },
+      hasMore: hasNextPage(medicines) || hasNextPage(batches) || hasNextPage(stockMovements) || hasNextPage(cartons)
     });
   } catch (error) {
     console.error("Pull sync error:", error);
@@ -170,16 +202,16 @@ async function dispatchOperation(
             category: (p.category as string) || null,
           },
           update: {
-            tradeName: (p.tradeName as string) || undefined,
-            genericName: (p.genericName as string) || undefined,
-            manufacturer: (p.manufacturer as string) || null,
-            barcode: (p.barcode as string) || null,
-            notes: (p.notes as string) || null,
-            strength: (p.strength as string) || null,
-            dosageForm: (p.dosageForm as string) || null,
-            route: (p.route as string) || null,
-            drugClass: (p.drugClass as string) || null,
-            category: (p.category as string) || null,
+            tradeName: p.tradeName !== undefined ? (p.tradeName as string) : undefined,
+            genericName: p.genericName !== undefined ? (p.genericName as string) : undefined,
+            manufacturer: p.manufacturer !== undefined ? (p.manufacturer as string) || null : undefined,
+            barcode: p.barcode !== undefined ? (p.barcode as string) || null : undefined,
+            notes: p.notes !== undefined ? (p.notes as string) || null : undefined,
+            strength: p.strength !== undefined ? (p.strength as string) || null : undefined,
+            dosageForm: p.dosageForm !== undefined ? (p.dosageForm as string) || null : undefined,
+            route: p.route !== undefined ? (p.route as string) || null : undefined,
+            drugClass: p.drugClass !== undefined ? (p.drugClass as string) || null : undefined,
+            category: p.category !== undefined ? (p.category as string) || null : undefined,
           },
         });
       } else if (operationType === "delete") {
@@ -228,10 +260,13 @@ async function dispatchOperation(
             userId: userId,
           },
           update: {
-            type: (p.type as string) || undefined,
-            quantity: (p.quantity as number) || undefined,
-            reason: (p.reason as string) || null,
-            notes: (p.notes as string) || null,
+            medicineId: p.medicineId !== undefined ? (p.medicineId as string) : undefined,
+            batchId: p.batchId !== undefined ? (p.batchId as string) || null : undefined,
+            convoyId: p.convoyId !== undefined ? (p.convoyId as string) || null : undefined,
+            type: p.type !== undefined ? (p.type as string) : undefined,
+            quantity: p.quantity !== undefined ? (p.quantity as number) : undefined,
+            reason: p.reason !== undefined ? (p.reason as string) || null : undefined,
+            notes: p.notes !== undefined ? (p.notes as string) || null : undefined,
           },
         });
       } else if (operationType === "delete") {
