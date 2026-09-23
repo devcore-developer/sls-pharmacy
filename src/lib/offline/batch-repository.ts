@@ -1,6 +1,7 @@
 import type { BatchWithCarton, BatchFormData, StockStats, ExpiryAlertData } from "@/types";
 import { getExpiryStatus, daysUntil, EXPIRY_SOON_DAYS, calculateTotalStock } from "./stock-utils";
 import { logOperation } from "./sync-operations";
+import { getDeviceId } from "./device-id";
 
 async function getDb() {
   const { db } = await import("./db");
@@ -35,11 +36,12 @@ export async function getBatchesForMedicine(medicineId: string): Promise<BatchWi
       cartonLabel: carton?.label ?? null,
       sectionName: carton?.sectionId ? sectionMap.get(carton.sectionId) ?? null : null,
       locationNote: carton?.locationNote ?? null,
-      isUnassigned: !b.cartonId,  // ✅ أضف هذا
+      isUnassigned: !b.cartonId,
       archivedAt: b.archivedAt ?? null,
     };
   });
 }
+
 export async function createBatch(medicineId: string, data: BatchFormData): Promise<string> {
   const db = await getDb();
   const id = crypto.randomUUID();
@@ -84,7 +86,126 @@ export async function updateBatch(id: string, data: BatchFormData): Promise<void
   });
 }
 
+/**
+ * إزالة الدواء (التشغيلة) من الكارتونة بشكل آمن
+ */
+export async function removeBatchFromCarton(batchId: string, cartonId: string, userId?: string): Promise<void> {
+  const db = await getDb();
+  const deviceId = getDeviceId();
+  const now = new Date();
+  const batch = await db.batches.get(batchId);
+  if (!batch) throw new Error("Batch not found");
+
+  await db.transaction("rw", [db.batches, db.syncOperations, db.auditLogs], async () => {
+    await db.batches.update(batchId, { cartonId: undefined, updatedAt: now });
+    
+    await db.syncOperations.add({
+      id: crypto.randomUUID(),
+      operationId: crypto.randomUUID(),
+      deviceId,
+      userId,
+      entityType: "batch",
+      entityId: batchId,
+      operationType: "update",
+      payload: { cartonId: null }, // إرسال null للسيرفر ليفصل العلاقة
+      createdAt: now,
+      syncStatus: "pending",
+      retryCount: 0,
+    });
+
+    await db.auditLogs.add({
+      id: crypto.randomUUID(),
+      userId: userId || "system",
+      action: "CARTON_ITEM_REMOVED",
+      entityType: "carton",
+      entityId: cartonId,
+      metadata: { batchId, medicineId: batch.medicineId, batchNumber: batch.batchNumber },
+      deviceId,
+      createdAt: now,
+    });
+  });
+}
+
+/**
+ * حذف/أرشفة التشغيلة من المخزون مع عمل حركة عكسية للسلامة
+ */
+export async function deleteBatchAndReverseStock(batchId: string, userId?: string): Promise<void> {
+  const db = await getDb();
+  const deviceId = getDeviceId();
+  const now = new Date();
+  const batch = await db.batches.get(batchId);
+  if (!batch) throw new Error("Batch not found");
+
+  const movementId = crypto.randomUUID();
+
+  await db.transaction("rw", [db.batches, db.stockMovements, db.syncOperations, db.auditLogs], async () => {
+    // 1. عمل حركة مخزون عكسية (Adjustment Out) للكمية المتبقية (لأغراض التدقيق)
+    if (batch.quantity > 0) {
+      await db.stockMovements.add({
+        id: movementId,
+        medicineId: batch.medicineId,
+        batchId: batchId,
+        type: "ADJUSTMENT_OUT",
+        quantity: batch.quantity,
+        reason: "Batch deleted/removed from inventory",
+        createdAt: now,
+        deviceId,
+        userId,
+      });
+
+      await db.syncOperations.add({
+        id: crypto.randomUUID(),
+        operationId: crypto.randomUUID(),
+        deviceId,
+        userId,
+        entityType: "stockMovement",
+        entityId: movementId,
+        operationType: "create",
+        payload: {
+          medicineId: batch.medicineId,
+          batchId: batchId,
+          type: "ADJUSTMENT_OUT",
+          quantity: batch.quantity,
+          reason: "Batch deleted/removed from inventory",
+        },
+        createdAt: now,
+        syncStatus: "pending",
+        retryCount: 0,
+      });
+    }
+
+    // 2. أرشفة التشغيلة وتصفير الكمية (بدلاً من حذفها نهائياً للحفاظ على السجل التاريخي)
+    await db.batches.update(batchId, { archivedAt: now, quantity: 0, updatedAt: now });
+
+    await db.syncOperations.add({
+      id: crypto.randomUUID(),
+      operationId: crypto.randomUUID(),
+      deviceId,
+      userId,
+      entityType: "batch",
+      entityId: batchId,
+      operationType: "update", // نستخدم update لنرسل archivedAt للسيرفر
+      payload: { archivedAt: now.toISOString(), quantity: 0 },
+      createdAt: now,
+      syncStatus: "pending",
+      retryCount: 0,
+    });
+
+    await db.auditLogs.add({
+      id: crypto.randomUUID(),
+      userId: userId || "system",
+      action: "STOCK_BATCH_DELETED",
+      entityType: "batch",
+      entityId: batchId,
+      metadata: { medicineId: batch.medicineId, quantity: batch.quantity, batchNumber: batch.batchNumber },
+      deviceId,
+      createdAt: now,
+    });
+  });
+}
+
 export async function archiveBatch(id: string): Promise<void> {
+  // يتم الاحتفاظ بها للتوافق مع أي كود قديم، لكن الأفضل استخدام deleteBatchAndReverseStock
   const db = await getDb();
   await db.batches.update(id, { archivedAt: new Date(), updatedAt: new Date() });
 
@@ -98,7 +219,6 @@ export async function archiveBatch(id: string): Promise<void> {
 
 export async function getStockStats(): Promise<StockStats> {
   const db = await getDb();
-  
   let totalMedicines = 0;
   let totalUnits = 0;
   let expiringSoon = 0;
@@ -109,14 +229,10 @@ export async function getStockStats(): Promise<StockStats> {
   const threshold = new Date(now);
   threshold.setDate(threshold.getDate() + EXPIRY_SOON_DAYS);
 
-  // 1. عدّ الأدوية النشطة (بدون تحميلها في RAM بالكامل)
   await db.medicines.each((m) => {
-    if (!m.archivedAt) {
-      totalMedicines++;
-    }
+    if (!m.archivedAt) totalMedicines++;
   });
 
-  // 2. حساب إحصائيات الدفعات (بدون تحميلها في RAM بالكامل)
   await db.batches.each((b) => {
     if (!b.archivedAt) {
       totalUnits += b.quantity || 0;
@@ -140,12 +256,11 @@ export async function getExpiryAlerts(): Promise<ExpiryAlertData[]> {
   const alerts: ExpiryAlertData[] = [];
   const medIds = new Set<string>();
 
-  // 1. جلب الدفعات التي ستنتهي قريباً باستخدام الـ Index (سريع جداً)
   await db.batches.where("expiryDate").belowOrEqual(threshold).each((b) => {
     if (!b.archivedAt) {
       alerts.push({
         medicineId: b.medicineId,
-        medicineName: "Unknown", // سنقوم بجلب الاسم لاحقاً
+        medicineName: "Unknown",
         batchNumber: b.batchNumber,
         expiryDate: b.expiryDate,
         quantity: b.quantity,
@@ -157,14 +272,10 @@ export async function getExpiryAlerts(): Promise<ExpiryAlertData[]> {
 
   if (alerts.length === 0) return [];
 
-  // 2. جلب بيانات الأدوية المطلوبة فقط
   const medIdsArr = Array.from(medIds);
-  const medicines = medIdsArr.length > 0 
-    ? await db.medicines.where("id").anyOf(medIdsArr).toArray() 
-    : [];
+  const medicines = medIdsArr.length > 0 ? await db.medicines.where("id").anyOf(medIdsArr).toArray() : [];
   const medMap = new Map(medicines.map((m) => [m.id!, m]));
 
-  // 3. ربط الاسماء بالدفعات
   for (const alert of alerts) {
     const med = medMap.get(alert.medicineId);
     alert.medicineName = med?.tradeName || "Unknown";

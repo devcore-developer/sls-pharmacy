@@ -6,6 +6,7 @@ import {
   SlidersHorizontal,
   Plus,
   ArrowUpDown,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page-header";
@@ -42,6 +43,7 @@ import {
   getMovementTypeLabel,
   LOW_STOCK_THRESHOLD,
 } from "@/lib/offline/stock-utils";
+import { deleteBatchAndReverseStock } from "@/lib/offline/batch-repository";
 import { formatDate } from "@/lib/utils";
 import { AdjustStockDialog } from "./components/adjust-stock-dialog";
 import { AddStockDialog } from "./components/add-stock-dialog";
@@ -103,6 +105,7 @@ export default function InventoryPage() {
     "medicine"
   );
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -221,6 +224,19 @@ export default function InventoryPage() {
       setSortDir("asc");
     }
   }
+
+  const handleDeleteBatch = async (batchId: string) => {
+    if (!window.confirm("Deleting this stock entry will reverse its quantity from inventory. Continue?")) return;
+    setDeletingId(batchId);
+    try {
+      await deleteBatchAndReverseStock(batchId);
+      await loadData();
+    } catch (error) {
+      alert("Failed to delete stock.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const activeCount = Object.values(filters).filter((v) => v !== "all").length;
 
@@ -343,6 +359,7 @@ export default function InventoryPage() {
                   <SortHead label="Expiry" sortKey="expiry" />
                   <TableHead>Stock Status</TableHead>
                   <TableHead>Last Movement</TableHead>
+                  <TableHead className="text-right pr-6">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -385,6 +402,17 @@ export default function InventoryPage() {
                         ) : (
                           "—"
                         )}
+                      </TableCell>
+                      <TableCell className="text-right pr-6">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                          disabled={deletingId === row.batchId}
+                          onClick={() => handleDeleteBatch(row.batchId)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );
@@ -442,6 +470,15 @@ export default function InventoryPage() {
                       {formatDate(row.lastMovement.date)}
                     </p>
                   )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-2 text-destructive border-destructive/30 hover:bg-destructive/10"
+                    disabled={deletingId === row.batchId}
+                    onClick={() => handleDeleteBatch(row.batchId)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete Stock
+                  </Button>
                 </div>
               );
             })}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, Pencil, Package, MapPin, Plus } from "lucide-react";
+import { ArrowLeft, Pencil, Package, MapPin, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -9,6 +9,7 @@ import { LoadingState } from "@/components/shared/loading-state";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { getCartonById, getCartonContents, getBatchLocationHistory } from "@/lib/offline/warehouse-repository";
 import { moveBatchCarton } from "@/lib/offline/warehouse-repository";
+import { removeBatchFromCarton } from "@/lib/offline/batch-repository";
 import { formatDate } from "@/lib/utils";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -27,6 +28,7 @@ export default function CartonDetailPage() {
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const [moveBatch, setMoveBatch] = useState<CartonContentItem | null>(null);
   const [showAddMedDialog, setShowAddMedDialog] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -50,6 +52,19 @@ export default function CartonDetailPage() {
       loadData();
     }
     return result;
+  };
+
+  const handleRemoveFromCarton = async (batchId: string) => {
+    if (!window.confirm("Are you sure you want to remove this medicine from the carton?")) return;
+    setRemovingId(batchId);
+    try {
+      await removeBatchFromCarton(batchId, cartonId);
+      await loadData();
+    } catch (error) {
+      alert("Failed to remove item.");
+    } finally {
+      setRemovingId(null);
+    }
   };
 
   if (loading) return <LoadingState message="Loading carton..." />;
@@ -90,6 +105,12 @@ export default function CartonDetailPage() {
             </Badge>
           </div>
         </div>
+        {carton.specialty && (
+          <p className="text-xs text-muted-foreground">Specialization: {carton.specialty}</p>
+        )}
+        {carton.category && (
+          <p className="text-xs text-muted-foreground">Category: {carton.category}</p>
+        )}
         {carton.sectionName && (
           <p className="text-xs text-muted-foreground">Section: {carton.sectionName}</p>
         )}
@@ -167,6 +188,7 @@ export default function CartonDetailPage() {
                     <th className="text-right">Expiry</th>
                     <th className="text-right">Qty</th>
                     <th className="text-right pr-6">Status</th>
+                    <th className="text-right pr-6">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -190,6 +212,17 @@ export default function CartonDetailPage() {
                       <td className="text-right pr-6">
                         <StatusBadge status={item.expiryStatus} />
                       </td>
+                      <td className="text-right pr-6">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                          disabled={removingId === item.batchId}
+                          onClick={() => handleRemoveFromCarton(item.batchId)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -212,6 +245,15 @@ export default function CartonDetailPage() {
                     <span>{formatDate(item.expiryDate)}</span>
                     <span className="font-medium text-foreground tabular-nums">{item.quantity}</span>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-2 text-destructive border-destructive/30 hover:bg-destructive/10"
+                    disabled={removingId === item.batchId}
+                    onClick={() => handleRemoveFromCarton(item.batchId)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Remove from Carton
+                  </Button>
                 </div>
               ))}
             </div>
@@ -226,7 +268,7 @@ export default function CartonDetailPage() {
             ? {
                 id: carton.id,
                 code: carton.code,
-                label: carton.label,
+                label: carton.label || "", // تعديل هنا لإضافة قيمة افتراضية
                 batchCount: carton.batchCount,
               }
             : null

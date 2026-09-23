@@ -5,25 +5,8 @@ import { ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { createCarton } from "@/lib/offline/warehouse-repository";
 import { useRouter } from "next/navigation";
-
-// قائمة التخصصات والفئات التابعة لها (مرتبة أبجدياً)
-const MEDICAL_SPECIALTIES: Record<string, string[]> = {
-  "Cardiology": ["Hypertension", "Cholesterol & Lipids", "Heart Failure", "Antiplatelets"],
-  "Endocrinology": ["Diabetes", "Thyroid Disorders", "Osteoporosis"],
-  "Gastroenterology": ["Acidity & Ulcers", "Constipation", "Diarrhea & Vomiting", "Liver & Gallbladder"],
-  "General": ["Pain Killers", "Antibiotics", "Vitamins & Supplements", "Cold & Flu", "First Aid"],
-  "Neurology & Psychiatry": ["Epilepsy", "Depression & Anxiety", "Sleep Disorders", "Pain & Migraine"],
-  "Respiratory": ["Asthma & COPD", "Cough & Cold", "Allergies"],
-};
 
 export default function NewCartonPage() {
   const router = useRouter();
@@ -35,9 +18,6 @@ export default function NewCartonPage() {
   const [locationNote, setLocationNote] = useState("");
   const [error, setError] = useState("");
 
-  // جلب الفئات بناءً على التخصص المختار
-  const availableCategories = specialty ? MEDICAL_SPECIALTIES[specialty] : [];
-
   async function handleCreate() {
     setError("");
 
@@ -47,21 +27,11 @@ export default function NewCartonPage() {
       return;
     }
 
-    if (!specialty) {
-      setError("Specialty is required.");
-      return;
-    }
-
-    if (!category) {
-      setError("Category is required.");
-      return;
-    }
-
     setSubmitting(true);
     const result = await createCarton({
       code: codeTrimmed,
-      specialty,
-      category,
+      specialty: specialty.trim() || undefined,
+      category: category.trim() || undefined,
       locationNote: locationNote.trim(),
     });
     setSubmitting(false);
@@ -107,49 +77,23 @@ export default function NewCartonPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="specialty">
-              Specialty <span className="text-destructive">*</span>
-            </Label>
-            <Select 
-              value={specialty} 
-              onValueChange={(val) => {
-                setSpecialty(val);
-                setCategory(""); // إعادة تعيين الفئة عند تغيير التخصص
-              }}
-            >
-              <SelectTrigger id="specialty">
-                <SelectValue placeholder="Select specialty..." />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.keys(MEDICAL_SPECIALTIES).sort().map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="specialty">Specialization (Optional)</Label>
+            <Input
+              id="specialty"
+              value={specialty}
+              onChange={(e) => setSpecialty(e.target.value)}
+              placeholder="e.g. Acidity, Cold & Flu"
+            />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="category">
-              Category <span className="text-destructive">*</span>
-            </Label>
-            <Select 
-              value={category} 
-              onValueChange={setCategory} 
-              disabled={!specialty}
-            >
-              <SelectTrigger id="category">
-                <SelectValue placeholder="Select category..." />
-              </SelectTrigger>
-              <SelectContent>
-                {availableCategories.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="category">Category (Optional)</Label>
+            <Input
+              id="category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="e.g. General, Pediatrics"
+            />
           </div>
 
           <div className="space-y-2">
@@ -173,7 +117,7 @@ export default function NewCartonPage() {
           </Button>
           <Button
             onClick={handleCreate}
-            disabled={submitting || !code.trim() || !specialty || !category}
+            disabled={submitting || !code.trim()}
           >
             {submitting ? "Creating..." : "Create Carton"}
           </Button>

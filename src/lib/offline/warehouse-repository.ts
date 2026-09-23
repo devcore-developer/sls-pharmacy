@@ -168,7 +168,7 @@ export async function getCartons(opts?: {
     return {
       id: c.id!,
       code: c.code,
-      label: c.label || "", // Fixed: Fallback for undefined
+      label: c.label || "", 
       sectionId: c.sectionId ?? null,
       sectionName: c.sectionId ? sectionMap.get(c.sectionId) || null : null,
       locationNote: c.locationNote || "",
@@ -223,7 +223,9 @@ export async function getCartonById(id: string): Promise<CartonDetail | null> {
   return {
     id: carton.id!,
     code: carton.code,
-    label: carton.label || "", // Fixed: Fallback for undefined
+    label: carton.label || "",
+    specialty: carton.specialty ?? null, // تم إضافته
+    category: carton.category ?? null,   // تم إضافته
     sectionId: carton.sectionId ?? null,
     sectionName,
     locationNote: carton.locationNote || "",
@@ -236,13 +238,16 @@ export async function getCartonById(id: string): Promise<CartonDetail | null> {
   };
 }
 
-export async function createCarton(data: { code: string; specialty: string; category: string; locationNote?: string }): Promise<{ success: boolean; error?: string }> {
+export async function createCarton(data: { 
+  code: string; 
+  specialty?: string; 
+  category?: string; 
+  locationNote?: string 
+}): Promise<{ success: boolean; error?: string }> {
   const db = await getDb();
   const codeTrimmed = data.code.trim();
 
   if (!codeTrimmed) return { success: false, error: "Carton code is required." };
-  if (!data.specialty) return { success: false, error: "Specialty is required." };
-  if (!data.category) return { success: false, error: "Category is required." };
 
   const existing = await db.cartons.where("code").equals(codeTrimmed).first();
   if (existing) {
@@ -254,8 +259,8 @@ export async function createCarton(data: { code: string; specialty: string; cate
   await db.cartons.add({
     id,
     code: codeTrimmed,
-    specialty: data.specialty,
-    category: data.category,
+    specialty: data.specialty?.trim() || undefined,
+    category: data.category?.trim() || undefined,
     locationNote: data.locationNote?.trim() || undefined,
     isActive: true,
     createdAt: now,
@@ -275,15 +280,25 @@ export async function createCarton(data: { code: string; specialty: string; cate
 
 export async function updateCarton(
   id: string,
-  data: { label?: string; sectionId?: string; locationNote?: string; isActive?: boolean }
+  data: { 
+    label?: string; 
+    specialty?: string; 
+    category?: string; 
+    sectionId?: string; 
+    locationNote?: string; 
+    isActive?: boolean 
+  }
 ): Promise<void> {
   const db = await getDb();
   const now = new Date();
   const updates: Record<string, unknown> = { updatedAt: now };
   if (data.label !== undefined) updates.label = data.label.trim();
+  if (data.specialty !== undefined) updates.specialty = data.specialty.trim() || undefined;
+  if (data.category !== undefined) updates.category = data.category.trim() || undefined;
   if (data.sectionId !== undefined) updates.sectionId = data.sectionId;
   if (data.locationNote !== undefined) updates.locationNote = data.locationNote?.trim() || undefined;
   if (data.isActive !== undefined) updates.isActive = data.isActive;
+  
   await db.cartons.update(id, updates);
   await logOperation({
     entityType: "carton",
@@ -321,7 +336,7 @@ export async function getAllCartonsSimple(): Promise<Array<{ id: string; code: s
   const cartons = await db.cartons.filter((c: { isActive?: boolean }) => c.isActive !== false).toArray();
   return cartons
     .sort((a, b) => a.code.localeCompare(b.code))
-    .map((c) => ({ id: c.id!, code: c.code, label: c.label || "" })); // Fixed: Fallback for undefined
+    .map((c) => ({ id: c.id!, code: c.code, label: c.label || "" }));
 }
 
 /* ------------------------------------------------------------------ */
@@ -437,7 +452,7 @@ export async function searchCartonContents(query: string): Promise<CartonSearchR
     results.push({
       cartonId: cid,
       cartonCode: carton.code,
-      cartonLabel: carton.label || "", // Fixed: Fallback for undefined
+      cartonLabel: carton.label || "", 
       sectionName: carton.sectionId ? sectionMap.get(carton.sectionId) || null : null,
       matches,
     });
@@ -504,7 +519,7 @@ export async function getBatchLocation(batchId: string): Promise<{
   return {
     sectionName,
     cartonCode: carton.code,
-    cartonLabel: carton.label || null, // Fixed: Fallback for undefined
+    cartonLabel: carton.label || null, 
     locationNote: carton.locationNote || null,
     isUnassigned: false,
   };
@@ -749,7 +764,7 @@ export async function getSectionCartons(sectionId: string): Promise<SectionCarto
     results.push({
       id: c.id!,
       code: c.code,
-      label: c.label || "", // Fixed: Fallback for undefined
+      label: c.label || "", 
       locationNote: c.locationNote || "",
       isActive: true,
       batchCount: cBatches.length,

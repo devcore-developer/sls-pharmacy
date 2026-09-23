@@ -432,16 +432,18 @@ export interface CartonListItem {
 export interface CartonDetail {
   id: string;
   code: string;
-  label: string;
-  sectionId: string | null;
-  sectionName: string | null;
-  locationNote: string;
+  label?: string | null;
+  specialty?: string | null;
+  category?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
+  locationNote?: string | null;
   isActive: boolean;
   batchCount: number;
   totalUnits: number;
   expiringSoonCount: number;
   expiredCount: number;
-  contents: CartonContentItem[];
+  contents?: CartonContentItem[]; // <--- أضف هذا السطر
 }
 
 export interface CartonContentItem {
