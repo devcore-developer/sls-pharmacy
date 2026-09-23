@@ -98,65 +98,79 @@ export async function archiveBatch(id: string): Promise<void> {
 
 export async function getStockStats(): Promise<StockStats> {
   const db = await getDb();
-  const medicines = await db.medicines.toArray();
-  const activeMeds = medicines.filter((m) => !m.archivedAt);
-  const batches = await db.batches.toArray();
-  const activeBatches = batches.filter((b) => !b.archivedAt);
+  
+  let totalMedicines = 0;
+  let totalUnits = 0;
+  let expiringSoon = 0;
+  let expired = 0;
 
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   const threshold = new Date(now);
   threshold.setDate(threshold.getDate() + EXPIRY_SOON_DAYS);
 
-  let expiringSoon = 0;
-  let expired = 0;
+  // 1. عدّ الأدوية النشطة (بدون تحميلها في RAM بالكامل)
+  await db.medicines.each((m) => {
+    if (!m.archivedAt) {
+      totalMedicines++;
+    }
+  });
 
-  for (const b of activeBatches) {
-    const e = new Date(b.expiryDate);
-    e.setHours(0, 0, 0, 0);
-    if (e < now) expired++;
-    else if (e <= threshold) expiringSoon++;
-  }
+  // 2. حساب إحصائيات الدفعات (بدون تحميلها في RAM بالكامل)
+  await db.batches.each((b) => {
+    if (!b.archivedAt) {
+      totalUnits += b.quantity || 0;
+      const e = new Date(b.expiryDate);
+      e.setHours(0, 0, 0, 0);
+      if (e < now) expired++;
+      else if (e <= threshold) expiringSoon++;
+    }
+  });
 
-  return {
-    totalMedicines: activeMeds.length,
-    totalUnits: calculateTotalStock(activeBatches),
-    expiringSoon,
-    expired,
-  };
+  return { totalMedicines, totalUnits, expiringSoon, expired };
 }
 
 export async function getExpiryAlerts(): Promise<ExpiryAlertData[]> {
   const db = await getDb();
-  const batches = await db.batches.toArray();
-  const medicines = await db.medicines.toArray();
-  const medMap = new Map(medicines.map((m) => [m.id!, m]));
-
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   const threshold = new Date(now);
   threshold.setDate(threshold.getDate() + EXPIRY_SOON_DAYS);
 
-  return batches
-    .filter((b) => {
-      if (b.archivedAt) return false;
-      const e = new Date(b.expiryDate);
-      e.setHours(0, 0, 0, 0);
-      return e <= threshold;
-    })
-    .map((b) => {
-      const med = medMap.get(b.medicineId);
-      return {
+  const alerts: ExpiryAlertData[] = [];
+  const medIds = new Set<string>();
+
+  // 1. جلب الدفعات التي ستنتهي قريباً باستخدام الـ Index (سريع جداً)
+  await db.batches.where("expiryDate").belowOrEqual(threshold).each((b) => {
+    if (!b.archivedAt) {
+      alerts.push({
         medicineId: b.medicineId,
-        medicineName: med?.tradeName || "Unknown",
+        medicineName: "Unknown", // سنقوم بجلب الاسم لاحقاً
         batchNumber: b.batchNumber,
         expiryDate: b.expiryDate,
         quantity: b.quantity,
         expiresIn: daysUntil(b.expiryDate),
-      };
-    })
-    .sort((a, b) => a.expiresIn - b.expiresIn)
-    .slice(0, 8);
+      });
+      medIds.add(b.medicineId);
+    }
+  });
+
+  if (alerts.length === 0) return [];
+
+  // 2. جلب بيانات الأدوية المطلوبة فقط
+  const medIdsArr = Array.from(medIds);
+  const medicines = medIdsArr.length > 0 
+    ? await db.medicines.where("id").anyOf(medIdsArr).toArray() 
+    : [];
+  const medMap = new Map(medicines.map((m) => [m.id!, m]));
+
+  // 3. ربط الاسماء بالدفعات
+  for (const alert of alerts) {
+    const med = medMap.get(alert.medicineId);
+    alert.medicineName = med?.tradeName || "Unknown";
+  }
+
+  return alerts.sort((a, b) => a.expiresIn - b.expiresIn).slice(0, 8);
 }
 
 export async function getExpiryStatusForMedicine(

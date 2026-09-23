@@ -98,102 +98,107 @@ export async function refreshCounts() {
 async function pullServerChanges() {
   if (!navigator.onLine) return;
   
-  let currentLastSyncStr = localStorage.getItem(LAST_PULL_KEY) || new Date(0).toISOString();
-  const limit = 500;
+  const lastSyncStr = localStorage.getItem(LAST_PULL_KEY) || new Date(0).toISOString();
+  let cursors = {
+    medicines: "",
+    batches: "",
+    stockMovements: "",
+    cartons: ""
+  };
   
   try {
     let hasMore = true;
-    
+    let totalSynced = 0;
+
     while (hasMore) {
-      const res = await fetch(`/api/sync?lastSync=${currentLastSyncStr}`);
-      if (!res.ok) return;
+      const params = new URLSearchParams({
+        lastSync: lastSyncStr,
+        medCursor: cursors.medicines,
+        batCursor: cursors.batches,
+        movCursor: cursors.stockMovements,
+        carCursor: cursors.cartons,
+      });
+
+      const res = await fetch(`/api/sync?${params.toString()}`, {
+        credentials: "include" // إرسال الكوكيز تلقائياً للتحقق من الجلسة
+      });
+      
+      if (!res.ok) {
+        console.error("[SYNC] Pull failed:", res.status);
+        status.state = "error";
+        status.errorMessage = `Sync failed: ${res.statusText}`;
+        notify();
+        return;
+      }
       
       const data = await res.json();
-      
-      let maxDate = new Date(currentLastSyncStr);
 
-      // 1. Save Medicines
-      if (data.medicines?.length > 0) {
-        await db.medicines.bulkPut(data.medicines.map((m: any) => ({
-          ...m,
-          archivedAt: m.archivedAt ? new Date(m.archivedAt) : undefined,
-          createdAt: new Date(m.createdAt),
-          updatedAt: new Date(m.updatedAt),
-        })));
-        
-        // تحديث أحدث تاريخ للسحب في الجولة التالية
-        for (const m of data.medicines) {
-          const u = new Date(m.updatedAt);
-          if (u > maxDate) maxDate = u;
+      try {
+        if (data.medicines?.length > 0) {
+          await db.medicines.bulkPut(data.medicines.map((m: any) => ({
+            ...m,
+            archivedAt: m.archivedAt ? new Date(m.archivedAt) : undefined,
+            createdAt: new Date(m.createdAt),
+            updatedAt: new Date(m.updatedAt),
+          })));
+          totalSynced += data.medicines.length;
         }
-      }
 
-      // 2. Save Batches
-      if (data.batches?.length > 0) {
-        await db.batches.bulkPut(data.batches.map((b: any) => ({
-          ...b,
-          expiryDate: new Date(b.expiryDate),
-          createdAt: new Date(b.createdAt),
-          updatedAt: new Date(b.updatedAt),
-        })));
-        for (const b of data.batches) {
-          const u = new Date(b.updatedAt);
-          if (u > maxDate) maxDate = u;
+        if (data.batches?.length > 0) {
+          await db.batches.bulkPut(data.batches.map((b: any) => ({
+            ...b,
+            expiryDate: new Date(b.expiryDate),
+            createdAt: new Date(b.createdAt),
+            updatedAt: new Date(b.updatedAt),
+          })));
+          totalSynced += data.batches.length;
         }
-      }
 
-      // 3. Save Stock Movements
-      if (data.stockMovements?.length > 0) {
-        await db.stockMovements.bulkPut(data.stockMovements.map((m: any) => ({
-          ...m,
-          createdAt: new Date(m.createdAt),
-        })));
-        for (const m of data.stockMovements) {
-          const u = new Date(m.createdAt);
-          if (u > maxDate) maxDate = u;
+        if (data.stockMovements?.length > 0) {
+          await db.stockMovements.bulkPut(data.stockMovements.map((m: any) => ({
+            ...m,
+            createdAt: new Date(m.createdAt),
+          })));
+          totalSynced += data.stockMovements.length;
         }
-      }
 
-      // 4. Save Cartons
-      if (data.cartons?.length > 0) {
-        await db.cartons.bulkPut(data.cartons.map((c: any) => ({
-          ...c,
-          createdAt: new Date(c.createdAt),
-          updatedAt: new Date(c.updatedAt),
-        })));
-        for (const c of data.cartons) {
-          const u = new Date(c.updatedAt);
-          if (u > maxDate) maxDate = u;
+        if (data.cartons?.length > 0) {
+          await db.cartons.bulkPut(data.cartons.map((c: any) => ({
+            ...c,
+            createdAt: new Date(c.createdAt),
+            updatedAt: new Date(c.updatedAt),
+          })));
+          totalSynced += data.cartons.length;
         }
+      } catch (dbErr) {
+        console.error("[SYNC] IndexedDB transaction failed:", dbErr);
+        status.state = "error";
+        status.errorMessage = "Storage limit reached or DB error.";
+        notify();
+        return; // لا تقم بتحديث الـ cursor في حالة فشل قاعدة البيانات
       }
 
-      // فحص هل لا تزال هناك بيانات إضافية في السيرفر لم يتم سحبها؟
-      const hasMoreMeds = data.medicines?.length === limit;
-      const hasMoreBatches = data.batches?.length === limit;
-      const hasMoreMovements = data.stockMovements?.length === limit;
-      const hasMoreCartons = data.cartons?.length === limit;
-      
-      if (hasMoreMeds || hasMoreBatches || hasMoreMovements || hasMoreCartons) {
-        // إضافة 1 ميلي ثانية لتجنب إعادة سحب آخر سجل في الجولة القادمة
-        maxDate = new Date(maxDate.getTime() + 1);
-        currentLastSyncStr = maxDate.toISOString();
-      } else {
-        hasMore = false;
-      }
+      cursors = data.nextCursors;
+      hasMore = data.hasMore;
     }
 
     localStorage.setItem(LAST_PULL_KEY, new Date().toISOString());
-    console.log("[SYNC] Pulled server changes successfully.");
+    console.log(`[SYNC] Pulled server changes successfully. Total records synced: ${totalSynced}`);
   } catch (err) {
-    console.error("[SYNC] Pull failed:", err);
+    console.error("[SYNC] Pull network error:", err);
+    status.state = "error";
+    status.errorMessage = "Network error during sync.";
+    notify();
   }
 }
+
 /* ------------------------------------------------------------------ */
 /*  Sync Now (Push + Pull)                                            */
 /* ------------------------------------------------------------------ */
 
 export async function syncNow(): Promise<SyncResult> {
   if (status.state === "syncing") return { synced: 0, failed: 0, conflicts: 0, errors: [] };
+
   if (!navigator.onLine) {
     status.state = "error";
     status.errorMessage = "You're offline. Changes will sync when you're back online.";
@@ -218,7 +223,10 @@ export async function syncNow(): Promise<SyncResult> {
       try {
         const response = await fetch("/api/sync", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          credentials: "include", // إرسال الكوكيز تلقائياً للتحقق من الجلسة
+          headers: { 
+            "Content-Type": "application/json"
+          },
           body: JSON.stringify({
             operationId: op.operationId,
             deviceId: op.deviceId,
@@ -377,6 +385,7 @@ export function formatOperationLabel(op: SyncOperationUI): string {
   const type = op.operationType === "create" ? "Create" : op.operationType === "update" ? "Update" : op.operationType === "delete" ? "Delete" : op.operationType;
   return `${type} ${entity}`;
 }
+
 export const retryAllFailed = () => retryFailed();
 
 /* ------------------------------------------------------------------ */

@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { verifyApiAuth } from "@/lib/auth/api-auth";
 
 // منع Next.js من محاولة تخزين هذا الـ API كملف Static أثناء البناء
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
+  // 1. التحقق من المصادقة (Authentication)
+  const user = await verifyApiAuth(req);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const cursor = searchParams.get("cursor");
@@ -41,10 +48,8 @@ export async function GET(req: Request) {
       updatedAt: m.updatedAt.toISOString(),
     }));
 
-    // تحديد الـ Cursor التالي إذا كانت هناك المزيد من البيانات
     const nextCursor = medicines.length === take ? medicines[medicines.length - 1].id : null;
 
-    // إرجاع النتائج على شكل { items, nextCursor } لتتوافق مع دالة المزامنة
     return NextResponse.json({
       items: serialized,
       nextCursor,

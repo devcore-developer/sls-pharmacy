@@ -100,7 +100,7 @@ model Medicine {
   convoyItems            ConvoyItem[]
   alternativesFrom       MedicineAlternative[]        @relation("AltFrom")
   alternativesTo         MedicineAlternative[]        @relation("AltTo")
-
+  @@index([updatedAt])
   @@map("medicines")
 }
 
@@ -180,6 +180,7 @@ model Batch {
   @@index([batchNumber])
   @@index([expiryDate])
   @@index([cartonId])
+  @@index([updatedAt])
   @@map("batches")
 }
 
@@ -218,6 +219,7 @@ model Carton {
   @@index([sectionId])
   @@index([isActive])
   @@index([code])
+  @@index([updatedAt])
   @@map("cartons")
 }
 
