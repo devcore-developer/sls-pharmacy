@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { WifiOff, Package } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { LoadingState } from "@/components/shared/loading-state";
@@ -37,42 +37,41 @@ export default function DashboardPage() {
   const [pendingSync, setPendingSync] = useState(0);
   const isOnline = useOnlineStatus();
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { db } = await import("@/lib/offline/db");
+      await db.open();
 
-    async function init() {
-      try {
-        const { db } = await import("@/lib/offline/db");
-        await db.open();
+      const dashboardData = await loadDashboardData();
+      setData(dashboardData);
 
-        if (cancelled) return;
-
-        const dashboardData = await loadDashboardData();
-
-        if (!cancelled) {
-          setData(dashboardData);
-        }
-      } catch (error) {
-        console.error("Failed to load dashboard data:", error);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+      const pending = await getPendingOperationsCount();
+      setPendingSync(pending);
+    } catch (error) {
+      console.error("Failed to load dashboard data:", error);
+    } finally {
+      setLoading(false);
     }
-
-    init();
-
-    getPendingOperationsCount()
-      .then(setPendingSync)
-      .catch(() => setPendingSync(0));
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  if (loading) {
+  // Load data initially when the page mounts
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // الاستماع لحدث اكتمال المزامنة لتحديث الأرقام تلقائياً
+  useEffect(() => {
+    const handleSync = () => {
+      console.log("[Dashboard] Data synced, refreshing dashboard...");
+      loadData();
+    };
+
+    window.addEventListener("app-data-synced", handleSync);
+    return () => window.removeEventListener("app-data-synced", handleSync);
+  }, [loadData]);
+
+  if (loading && !data) {
     return <LoadingState message="Loading dashboard..." />;
   }
 
