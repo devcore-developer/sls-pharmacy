@@ -142,7 +142,18 @@ async function pullServerChanges() {
       try {
         if (data.medicines?.length > 0) {
           await db.medicines.bulkPut(data.medicines.map((m: any) => ({
-            ...m,
+            id: m.id,
+            tradeName: m.tradeName,
+            genericName: m.genericName,
+            manufacturer: m.manufacturer || undefined,
+            barcode: m.barcode || undefined,
+            notes: m.notes || undefined,
+            strength: m.strength || undefined,
+            dosageForm: m.dosageForm || undefined,
+            route: m.route || undefined,
+            drugClass: m.drugClass || undefined,
+            category: m.category || undefined,
+            isCatalog: m.isCatalog || false,
             archivedAt: m.archivedAt ? new Date(m.archivedAt) : undefined,
             createdAt: new Date(m.createdAt),
             updatedAt: new Date(m.updatedAt),
@@ -152,8 +163,13 @@ async function pullServerChanges() {
 
         if (data.batches?.length > 0) {
           await db.batches.bulkPut(data.batches.map((b: any) => ({
-            ...b,
+            id: b.id,
+            medicineId: b.medicineId,
+            batchNumber: b.batchNumber,
+            quantity: b.quantity,
             expiryDate: new Date(b.expiryDate),
+            cartonId: b.cartonId || undefined, // تحويل null إلى undefined
+            archivedAt: b.archivedAt ? new Date(b.archivedAt) : undefined, // تحويل null إلى undefined
             createdAt: new Date(b.createdAt),
             updatedAt: new Date(b.updatedAt),
           })));
@@ -162,15 +178,32 @@ async function pullServerChanges() {
 
         if (data.stockMovements?.length > 0) {
           await db.stockMovements.bulkPut(data.stockMovements.map((m: any) => ({
-            ...m,
+            id: m.id,
+            medicineId: m.medicineId,
+            batchId: m.batchId || undefined,
+            convoyId: m.convoyId || undefined,
+            convoyItemId: m.convoyItemId || undefined,
+            receiptId: m.receiptId || undefined,
+            receiptItemId: m.receiptItemId || undefined,
+            type: m.type,
+            quantity: m.quantity,
+            reason: m.reason || undefined,
+            notes: m.notes || undefined,
             createdAt: new Date(m.createdAt),
+            deviceId: m.deviceId || undefined,
+            userId: m.userId || undefined,
           })));
           totalSynced += data.stockMovements.length;
         }
 
         if (data.cartons?.length > 0) {
           await db.cartons.bulkPut(data.cartons.map((c: any) => ({
-            ...c,
+            id: c.id,
+            code: c.code,
+            label: c.label || undefined,
+            sectionId: c.sectionId || undefined,
+            locationNote: c.locationNote || undefined,
+            isActive: c.isActive ?? true,
             createdAt: new Date(c.createdAt),
             updatedAt: new Date(c.updatedAt),
           })));

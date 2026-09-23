@@ -272,7 +272,8 @@ export async function getStockMovements(
   if (filters.batchSearch) {
     const q = filters.batchSearch.toLowerCase();
     results = results.filter(
-      (r) => r.batchNumber?.toLowerCase().includes(q)
+      (r) =>
+        r.batchNumber?.toLowerCase().includes(q)
     );
   }
 
@@ -513,6 +514,7 @@ export async function addDirectStock(params: {
           userId: params.userId,
         });
 
+        // 1. مزامنة حركة المخزون (Stock Movement)
         await db.syncOperations.add({
           id: crypto.randomUUID(), 
           operationId: crypto.randomUUID(),
@@ -522,6 +524,28 @@ export async function addDirectStock(params: {
           entityId: movementId,
           operationType: "create",
           payload: { ...params, movementType, batchId } as unknown as Record<string, unknown>,
+          createdAt: now,
+          syncStatus: "pending",
+          retryCount: 0,
+        });
+
+        // 2. مزامنة التشغيلة (Batch) - هذا هو الجزء الذي كان مفقوداً ويسبب المشكلة!
+        await db.syncOperations.add({
+          id: crypto.randomUUID(),
+          operationId: crypto.randomUUID(),
+          deviceId: deviceId,
+          userId: params.userId,
+          entityType: "batch",
+          entityId: batchId,
+          operationType: batch ? "update" : "create",
+          payload: {
+            id: batchId,
+            medicineId: params.medicineId,
+            batchNumber: effectiveBatchNumber,
+            quantity: newQuantity,
+            expiryDate: expiry.toISOString(),
+            cartonId: params.cartonId || null,
+          },
           createdAt: now,
           syncStatus: "pending",
           retryCount: 0,
