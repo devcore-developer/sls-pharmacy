@@ -105,6 +105,7 @@ async function pullServerChanges() {
     stockMovements: "",
     cartons: ""
   };
+  let lastServerTime = new Date().toISOString(); // <--- أضف هذا السطر
   
   try {
     let hasMore = true;
@@ -120,7 +121,7 @@ async function pullServerChanges() {
       });
 
       const res = await fetch(`/api/sync?${params.toString()}`, {
-        credentials: "include" // إرسال الكوكيز تلقائياً للتحقق من الجلسة
+        credentials: "include"
       });
       
       if (!res.ok) {
@@ -132,6 +133,11 @@ async function pullServerChanges() {
       }
       
       const data = await res.json();
+      
+      // تحديث توقيت السيرفر في كل مرة ننجح فيها في جلب البيانات
+      if (data.serverTime) {
+        lastServerTime = data.serverTime;
+      }
 
       try {
         if (data.medicines?.length > 0) {
@@ -175,17 +181,16 @@ async function pullServerChanges() {
         status.state = "error";
         status.errorMessage = "Storage limit reached or DB error.";
         notify();
-        return; // لا تقم بتحديث الـ cursor في حالة فشل قاعدة البيانات
+        return;
       }
 
       cursors = data.nextCursors;
       hasMore = data.hasMore;
     }
 
-        localStorage.setItem(LAST_PULL_KEY, new Date().toISOString());
+    localStorage.setItem(LAST_PULL_KEY, lastServerTime); // <--- استخدام توقيت السيرفر هنا
     console.log(`[SYNC] Pulled server changes successfully. Total records synced: ${totalSynced}`);
     
-    // إطلاق حدث عالمي لإخبار الواجهات بتحديث بياناتها
     if (totalSynced > 0 && typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("app-data-synced"));
     }
@@ -411,4 +416,11 @@ if (typeof window !== "undefined") {
   if (navigator.onLine) {
     setTimeout(() => syncNow(), 2000);
   }
+
+  // تفعيل المزامنة الدورية في الخلفية كل 15 ثانية
+  setInterval(() => {
+    if (navigator.onLine) {
+      syncNow().catch(console.error);
+    }
+  }, 15000); // 15 seconds
 }

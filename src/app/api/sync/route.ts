@@ -67,6 +67,7 @@ export async function GET(req: NextRequest) {
     ]);
 
     return NextResponse.json({
+      serverTime: new Date().toISOString(),
       medicines,
       batches,
       stockMovements,
