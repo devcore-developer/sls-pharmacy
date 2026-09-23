@@ -84,6 +84,17 @@ export default function MedicinesPage() {
     return () => clearTimeout(timer);
   }, [search, loadData]);
 
+  // الاستماع لحدث اكتمال المزامنة لتحديث الجدول تلقائياً
+  useEffect(() => {
+    const handleSync = () => {
+      // إعادة تحميل البيانات لعرض ما تم سحبه من السيرفر
+      loadData(currentPage, search);
+    };
+    
+    window.addEventListener("app-data-synced", handleSync);
+    return () => window.removeEventListener("app-data-synced", handleSync);
+  }, [loadData, currentPage, search]);
+
   const handlePageChange = (newPage: number) => {
     if (newPage < 1 || newPage > totalPages) return;
     setCurrentPage(newPage);

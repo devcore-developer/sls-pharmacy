@@ -182,8 +182,13 @@ async function pullServerChanges() {
       hasMore = data.hasMore;
     }
 
-    localStorage.setItem(LAST_PULL_KEY, new Date().toISOString());
+        localStorage.setItem(LAST_PULL_KEY, new Date().toISOString());
     console.log(`[SYNC] Pulled server changes successfully. Total records synced: ${totalSynced}`);
+    
+    // إطلاق حدث عالمي لإخبار الواجهات بتحديث بياناتها
+    if (totalSynced > 0 && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("app-data-synced"));
+    }
   } catch (err) {
     console.error("[SYNC] Pull network error:", err);
     status.state = "error";
