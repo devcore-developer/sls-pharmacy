@@ -568,7 +568,13 @@ export async function addDirectStock(params: {
     });
   } catch (auditError) {
     console.error("Failed to log audit for direct stock:", auditError);
-    // We ignore the audit error so the UI remains successful
+  }
+
+  // 4. Trigger immediate background sync without awaiting to block UI
+  if (typeof window !== "undefined") {
+    import("@/lib/sync/engine").then(engine => {
+      engine.syncNow().catch(console.error);
+    });
   }
 
   return { success: true };

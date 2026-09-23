@@ -92,13 +92,33 @@ export async function refreshCounts() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Reconciliation (Fix Stale Cursors)                                 */
+/* ------------------------------------------------------------------ */
+
+export async function reconcileData(): Promise<void> {
+  if (status.state === "syncing") return;
+  
+  console.log("[SYNC] Starting data reconciliation. Resetting cursors...");
+  
+  // 1. تصفير الـ Cursors لإجبار المحرك على سحب البيانات من عام 1970
+  localStorage.removeItem("sls-med-lastSync");
+  localStorage.removeItem("sls-bat-lastSync");
+  localStorage.removeItem("sls-mov-lastSync");
+  localStorage.removeItem("sls-car-lastSync");
+  localStorage.removeItem("sls-last-pull-sync");
+  localStorage.removeItem("sls-last-sync");
+  
+  // 2. تشغيل المزامنة العادية التي ستقوم بسحب كل شيء من جديد
+  await syncNow();
+}
+
+/* ------------------------------------------------------------------ */
 /*  Pull Sync (Fetch server changes)                                   */
 /* ------------------------------------------------------------------ */
 
 async function pullServerChanges() {
   if (!navigator.onLine) return;
   
-  // قراءة الـ Cursors الخاصة بكل نوع بشكل منفصل
   let medLastSync = localStorage.getItem("sls-med-lastSync") || new Date(0).toISOString();
   let batLastSync = localStorage.getItem("sls-bat-lastSync") || new Date(0).toISOString();
   let movLastSync = localStorage.getItem("sls-mov-lastSync") || new Date(0).toISOString();
@@ -168,8 +188,8 @@ async function pullServerChanges() {
             batchNumber: b.batchNumber,
             quantity: b.quantity,
             expiryDate: new Date(b.expiryDate),
-            cartonId: b.cartonId || undefined, // تحويل null إلى undefined
-            archivedAt: b.archivedAt ? new Date(b.archivedAt) : undefined, // تحويل null إلى undefined
+            cartonId: b.cartonId || undefined,
+            archivedAt: b.archivedAt ? new Date(b.archivedAt) : undefined,
             createdAt: new Date(b.createdAt),
             updatedAt: new Date(b.updatedAt),
           })));
@@ -217,7 +237,6 @@ async function pullServerChanges() {
         return; 
       }
 
-      // تحديث الـ Cursors والـ LastSync لكل نوع
       medCursor = data.nextCursors.medicines;
       batCursor = data.nextCursors.batches;
       movCursor = data.nextCursors.stockMovements;
@@ -231,13 +250,11 @@ async function pullServerChanges() {
       hasMore = data.hasMore;
     }
 
-    // حفظ الـ Cursors المنفصلة للاستخدام في المرة القادمة
     localStorage.setItem("sls-med-lastSync", medLastSync);
     localStorage.setItem("sls-bat-lastSync", batLastSync);
     localStorage.setItem("sls-mov-lastSync", movLastSync);
     localStorage.setItem("sls-car-lastSync", carLastSync);
     
-    // مسح الـ Legacy Key القديم
     localStorage.removeItem("sls-last-pull-sync");
     localStorage.removeItem("sls-last-sync");
 
@@ -255,10 +272,21 @@ async function pullServerChanges() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Sync Now (Push + Pull)                                            */
+/*  Sync Now (Push + Pull) with Promise Lock                          */
 /* ------------------------------------------------------------------ */
 
+let syncPromise: Promise<SyncResult> | null = null;
+
 export async function syncNow(): Promise<SyncResult> {
+  if (syncPromise) return syncPromise;
+  
+  syncPromise = actualSyncNow();
+  const result = await syncPromise;
+  syncPromise = null;
+  return result;
+}
+
+async function actualSyncNow(): Promise<SyncResult> {
   if (status.state === "syncing") return { synced: 0, failed: 0, conflicts: 0, errors: [] };
 
   if (!navigator.onLine) {
@@ -274,7 +302,6 @@ export async function syncNow(): Promise<SyncResult> {
 
   const result: SyncResult = { synced: 0, failed: 0, conflicts: 0, errors: [] };
 
-  // 1. Push local changes to server
   try {
     const pending = await db.syncOperations.where("syncStatus").equals("pending").sortBy("createdAt");
 
@@ -285,10 +312,8 @@ export async function syncNow(): Promise<SyncResult> {
       try {
         const response = await fetch("/api/sync", {
           method: "POST",
-          credentials: "include", // إرسال الكوكيز تلقائياً للتحقق من الجلسة
-          headers: { 
-            "Content-Type": "application/json"
-          },
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             operationId: op.operationId,
             deviceId: op.deviceId,
@@ -358,7 +383,6 @@ export async function syncNow(): Promise<SyncResult> {
     notify();
   }
 
-  // 2. Pull server changes after pushing
   await pullServerChanges();
 
   return result;
@@ -413,7 +437,7 @@ export async function getSyncedOperationsUI(limit = 20): Promise<SyncOperationUI
   return ops.slice(0, limit).map(formatOp);
 }
 
-function formatOp(op: import("@/lib/offline/db").SyncOperationRecord): SyncOperationUI {
+function formatOp(op: SyncOperationRecord): SyncOperationUI {
   return {
     operationId: op.operationId,
     entityType: op.entityType,
@@ -465,14 +489,21 @@ if (typeof window !== "undefined") {
   
   window.addEventListener("offline", () => updateConnectionState(false));
 
+  // Immediate Pull when the user returns to the tab
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && navigator.onLine) {
+      syncNow().catch(console.error);
+    }
+  });
+
   if (navigator.onLine) {
     setTimeout(() => syncNow(), 2000);
   }
 
-  // تفعيل المزامنة الدورية في الخلفية كل 15 ثانية
+  // Fallback polling reduced to 30s
   setInterval(() => {
     if (navigator.onLine) {
       syncNow().catch(console.error);
     }
-  }, 15000); // 15 seconds
+  }, 30000);
 }
