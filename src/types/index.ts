@@ -196,6 +196,7 @@ export interface ConvoyItem {
   reconciledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  sourceCartonId?: string | null;
 }
 
 export interface ConvoyDetail {

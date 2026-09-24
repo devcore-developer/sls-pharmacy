@@ -133,7 +133,7 @@ export default function ConvoyDetailPage({ params }: { params: { id: string } })
             <Button size="sm" onClick={handleStart} disabled={starting}>
               <Play className="h-3.5 w-3.5 mr-1" />{starting ? "Starting..." : "Start Convoy"}
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowAddMed(true)}><Plus className="h-3.5 w-3.5 mr-1" />Add Medicine</Button>
+            <Button variant="outline" size="sm" onClick={() => setShowAddMed(true)}><Plus className="h-3.5 w-3.5 mr-1" />Add Medicines</Button>
             <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => setShowDelete(true)}>
               <Trash2 className="h-3.5 w-3.5 mr-1" />Delete
             </Button>

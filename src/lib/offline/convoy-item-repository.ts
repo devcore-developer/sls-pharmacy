@@ -23,6 +23,7 @@ function toItemRecord(
     genericName,
     batchId: r.batchId ?? null,
     batchNumber,
+    sourceCartonId: r.sourceCartonId ?? null, // تمت الإضافة
     quantityTaken: r.quantityTaken,
     quantityDispensed: r.quantityDispensed,
     quantityReturned: r.quantityReturned || 0,
@@ -71,11 +72,14 @@ export async function getConvoyItems(convoyId: string): Promise<ConvoyItem[]> {
   const medMap = new Map(meds.map((m) => [m.id!, m]));
   const batchMap = new Map(batches.map((b) => [b.id!, b]));
 
-  return records.map((r) => {
+  const items = records.map((r) => {
     const med = medMap.get(r.medicineId);
     const batch = r.batchId ? batchMap.get(r.batchId) : null;
     return toItemRecord(r, med?.tradeName || "Unknown", med?.genericName || "", batch?.batchNumber || "—");
   });
+
+  // ترتيب أبجدي حسب الاسم التجاري
+  return items.sort((a, b) => a.medicineName.localeCompare(b.medicineName));
 }
 
 export async function getAvailableBatchesForMedicine(
@@ -123,6 +127,7 @@ export async function addConvoyItem(params: {
   medicineId: string;
   batchId: string;
   quantityTaken: number;
+  sourceCartonId?: string; // تمت الإضافة
 }): Promise<{ success: boolean; error?: string }> {
   const db = await getDb();
   const existing = await db.convoyItems
@@ -142,11 +147,41 @@ export async function addConvoyItem(params: {
   const now = new Date();
   await db.convoyItems.add({
     id, convoyId: params.convoyId, medicineId: params.medicineId, batchId: params.batchId,
+    sourceCartonId: params.sourceCartonId, // تمت الإضافة
     quantityTaken: params.quantityTaken, quantityDispensed: 0, quantityReturned: 0,
     quantityMissingOrDamaged: 0, reconciliationNote: "", createdAt: now, updatedAt: now,
   });
   await logOperation({ entityType: "convoyItem", entityId: id, operationType: "create", payload: params, deviceId: getDeviceId() });
   return { success: true };
+}
+
+/**
+ * إضافة كارتون كامل للقافلة (نسخة عمل فقط لا تخصم من المخزون)
+ */
+export async function addCartonToConvoyItems(convoyId: string, cartonId: string): Promise<{ success: boolean; error?: string; addedCount?: number }> {
+  const { getCartonContents } = await import("./warehouse-repository");
+  const contents = await getCartonContents(cartonId);
+  
+  if (contents.length === 0) {
+    return { success: false, error: "Carton is empty or not found." };
+  }
+
+  let addedCount = 0;
+  for (const content of contents) {
+    const result = await addConvoyItem({
+      convoyId,
+      medicineId: content.medicineId,
+      batchId: content.batchId,
+      quantityTaken: content.quantity,
+      sourceCartonId: cartonId,
+    });
+    if (result.success) {
+      addedCount++;
+    }
+    // إذا كان الدواء موجود مسبقاً في القافلة، نتخطاه ولا نكسر العملية
+  }
+
+  return { success: true, addedCount };
 }
 
 export async function removeConvoyItem(itemId: string): Promise<void> {

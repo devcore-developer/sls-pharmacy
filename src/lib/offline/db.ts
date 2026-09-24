@@ -120,6 +120,7 @@ export interface ConvoyItemRecord {
   convoyId: string;
   medicineId: string;
   batchId?: string;
+  sourceCartonId?: string; // <--- أضف هذا السطر
   quantityTaken: number;
   quantityDispensed: number;
   quantityReturned: number;

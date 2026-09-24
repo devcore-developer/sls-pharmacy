@@ -301,6 +301,44 @@ async function dispatchOperation(
       }
       break;
 
+    case "carton":
+      if (operationType === "create" || operationType === "update") {
+        await prisma.carton.upsert({
+          where: { id: entityId },
+          create: {
+            id: entityId,
+            code: (p.code as string) || "",
+            label: (p.label as string) || null,
+            specialty: (p.specialty as string) || null,
+            category: (p.category as string) || null,
+            sectionId: (p.sectionId as string) || null,
+            locationNote: (p.locationNote as string) || null,
+            isActive: typeof p.isActive === "boolean" ? p.isActive : true,
+            createdAt: p.createdAt ? new Date(p.createdAt as string) : new Date(),
+            updatedAt: p.updatedAt ? new Date(p.updatedAt as string) : new Date(),
+          },
+          update: {
+            code: p.code !== undefined ? (p.code as string) : undefined,
+            label: p.label !== undefined ? (p.label as string) || null : undefined,
+            specialty: p.specialty !== undefined ? (p.specialty as string) || null : undefined,
+            category: p.category !== undefined ? (p.category as string) || null : undefined,
+            sectionId: p.sectionId !== undefined ? (p.sectionId as string) || null : undefined,
+            locationNote: p.locationNote !== undefined ? (p.locationNote as string) || null : undefined,
+            isActive: typeof p.isActive === "boolean" ? p.isActive : undefined,
+            updatedAt: new Date(),
+          },
+        });
+      } else if (operationType === "delete") {
+        // Soft delete carton
+        await prisma.carton.update({
+          where: { id: entityId },
+          data: { isActive: false }
+        }).catch(() => {});
+      }
+      break;
+
+
+
     case "stockReceipt":
       if (operationType === "create" || operationType === "update") {
         await prisma.stockReceipt.upsert({

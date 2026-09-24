@@ -256,7 +256,8 @@ export async function createCarton(data: {
 
   const now = new Date();
   const id = crypto.randomUUID();
-  await db.cartons.add({
+  
+  const cartonData = {
     id,
     code: codeTrimmed,
     specialty: data.specialty?.trim() || undefined,
@@ -265,13 +266,15 @@ export async function createCarton(data: {
     isActive: true,
     createdAt: now,
     updatedAt: now,
-  });
+  };
+
+  await db.cartons.add(cartonData);
 
   await logOperation({
     entityType: "carton",
     entityId: id,
     operationType: "create",
-    payload: data,
+    payload: cartonData, // تم إصلاح الـ Payload هنا
     deviceId: await getDeviceId(),
   });
 
@@ -300,11 +303,14 @@ export async function updateCarton(
   if (data.isActive !== undefined) updates.isActive = data.isActive;
   
   await db.cartons.update(id, updates);
+  
+  const payload = { ...data, id, updatedAt: now.toISOString() };
+  
   await logOperation({
     entityType: "carton",
     entityId: id,
     operationType: "update",
-    payload: data,
+    payload: payload,
     deviceId: await getDeviceId(),
   });
 }
