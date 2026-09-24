@@ -252,6 +252,7 @@ model ConvoyItem {
   quantityReturned         Int             @default(0)
   quantityMissingOrDamaged Int             @default(0)
   reconciliationNote       String?
+  sourceCartonId           String?
   returnedAt               DateTime?
   reconciledAt             DateTime?
   createdAt                DateTime        @default(now())
@@ -260,6 +261,7 @@ model ConvoyItem {
   medicine                 Medicine        @relation(fields: [medicineId], references: [id])
   batch                    Batch?          @relation(fields: [batchId], references: [id])
   stockMovements           StockMovement[]
+  
 
   @@index([convoyId])
   @@index([medicineId])

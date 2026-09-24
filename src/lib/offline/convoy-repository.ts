@@ -76,52 +76,69 @@ export async function getConvoyDetail(id: string): Promise<ConvoyDetail | null> 
   };
 }
 
-export async function createConvoy(data: ConvoyFormData): Promise<string> {
+export async function createConvoy(data: {
+  name: string;
+  date: string;
+  location?: string;
+  responsiblePerson?: string;
+  notes?: string;
+  userId?: string;
+}): Promise<string> {
   const db = await getDb();
   const id = crypto.randomUUID();
   const now = new Date();
-
-  await db.convoys.add({
+  
+  const convoyData = {
     id,
-    name: data.name.trim(),
+    name: data.name,
     date: data.date,
-    location: data.location.trim(),
-    responsiblePerson: data.responsiblePerson.trim(),
-    notes: data.notes.trim(),
-    status: "DRAFT",
+    location: data.location || "",
+    responsiblePerson: data.responsiblePerson || "",
+    notes: data.notes || "",
+    status: "DRAFT" as const,
     createdAt: now,
     updatedAt: now,
-  });
+  };
+
+  await db.convoys.add(convoyData);
 
   await logOperation({
     entityType: "convoy",
     entityId: id,
     operationType: "create",
-    payload: data,
-    deviceId: getDeviceId(),
+    payload: { ...convoyData, createdAt: now.toISOString(), updatedAt: now.toISOString() },
+    deviceId: typeof window !== "undefined" ? getDeviceId() : undefined,
   });
 
   return id;
 }
 
-export async function updateConvoy(id: string, data: ConvoyFormData): Promise<void> {
+export async function updateConvoy(id: string, data: {
+  name?: string;
+  date?: string;
+  location?: string;
+  responsiblePerson?: string;
+  notes?: string;
+  status?: string;
+}): Promise<void> {
   const db = await getDb();
+  const now = new Date();
+  const updates: any = { updatedAt: now };
+  if (data.name !== undefined) updates.name = data.name;
+  if (data.date !== undefined) updates.date = data.date;
+  if (data.location !== undefined) updates.location = data.location;
+  if (data.responsiblePerson !== undefined) updates.responsiblePerson = data.responsiblePerson;
+  if (data.notes !== undefined) updates.notes = data.notes;
+  if (data.status !== undefined) updates.status = data.status;
 
-  await db.convoys.update(id, {
-    name: data.name.trim(),
-    date: data.date,
-    location: data.location.trim(),
-    responsiblePerson: data.responsiblePerson.trim(),
-    notes: data.notes.trim(),
-    updatedAt: new Date(),
-  });
+  await db.convoys.update(id, updates);
 
   await logOperation({
     entityType: "convoy",
     entityId: id,
     operationType: "update",
-    payload: data,
-    deviceId: getDeviceId(),
+    payload: { ...updates, id, updatedAt: now.toISOString() },
+    deviceId: typeof window !== "undefined" ? getDeviceId() : undefined,
   });
 }
 

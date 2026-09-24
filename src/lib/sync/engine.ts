@@ -123,11 +123,15 @@ async function pullServerChanges() {
   let batLastSync = localStorage.getItem("sls-bat-lastSync") || new Date(0).toISOString();
   let movLastSync = localStorage.getItem("sls-mov-lastSync") || new Date(0).toISOString();
   let carLastSync = localStorage.getItem("sls-car-lastSync") || new Date(0).toISOString();
+  let conLastSync = localStorage.getItem("sls-con-lastSync") || new Date(0).toISOString();
+  let conItemLastSync = localStorage.getItem("sls-conItem-lastSync") || new Date(0).toISOString();
   
   let medCursor = "";
   let batCursor = "";
   let movCursor = "";
   let carCursor = "";
+  let conCursor = "";
+  let conItemCursor = "";
   
   try {
     let hasMore = true;
@@ -135,19 +139,11 @@ async function pullServerChanges() {
 
     while (hasMore) {
       const params = new URLSearchParams({
-        medLastSync,
-        batLastSync,
-        movLastSync,
-        carLastSync,
-        medCursor,
-        batCursor,
-        movCursor,
-        carCursor,
+        medLastSync, batLastSync, movLastSync, carLastSync, conLastSync, conItemLastSync,
+        medCursor, batCursor, movCursor, carCursor, conCursor, conItemCursor,
       });
 
-      const res = await fetch(`/api/sync?${params.toString()}`, {
-        credentials: "include"
-      });
+      const res = await fetch(`/api/sync?${params.toString()}`, { credentials: "include" });
       
       if (!res.ok) {
         console.error("[SYNC] Pull failed:", res.status);
@@ -162,72 +158,75 @@ async function pullServerChanges() {
       try {
         if (data.medicines?.length > 0) {
           await db.medicines.bulkPut(data.medicines.map((m: any) => ({
-            id: m.id,
-            tradeName: m.tradeName,
-            genericName: m.genericName,
-            manufacturer: m.manufacturer || undefined,
-            barcode: m.barcode || undefined,
-            notes: m.notes || undefined,
-            strength: m.strength || undefined,
-            dosageForm: m.dosageForm || undefined,
-            route: m.route || undefined,
-            drugClass: m.drugClass || undefined,
-            category: m.category || undefined,
+            id: m.id, tradeName: m.tradeName, genericName: m.genericName,
+            manufacturer: m.manufacturer || undefined, barcode: m.barcode || undefined,
+            notes: m.notes || undefined, strength: m.strength || undefined,
+            dosageForm: m.dosageForm || undefined, route: m.route || undefined,
+            drugClass: m.drugClass || undefined, category: m.category || undefined,
             isCatalog: m.isCatalog || false,
             archivedAt: m.archivedAt ? new Date(m.archivedAt) : undefined,
-            createdAt: new Date(m.createdAt),
-            updatedAt: new Date(m.updatedAt),
+            createdAt: new Date(m.createdAt), updatedAt: new Date(m.updatedAt),
           })));
           totalSynced += data.medicines.length;
         }
 
         if (data.batches?.length > 0) {
           await db.batches.bulkPut(data.batches.map((b: any) => ({
-            id: b.id,
-            medicineId: b.medicineId,
-            batchNumber: b.batchNumber,
-            quantity: b.quantity,
-            expiryDate: new Date(b.expiryDate),
+            id: b.id, medicineId: b.medicineId, batchNumber: b.batchNumber,
+            quantity: b.quantity, expiryDate: new Date(b.expiryDate),
             cartonId: b.cartonId || undefined,
             archivedAt: b.archivedAt ? new Date(b.archivedAt) : undefined,
-            createdAt: new Date(b.createdAt),
-            updatedAt: new Date(b.updatedAt),
+            createdAt: new Date(b.createdAt), updatedAt: new Date(b.updatedAt),
           })));
           totalSynced += data.batches.length;
         }
 
         if (data.stockMovements?.length > 0) {
           await db.stockMovements.bulkPut(data.stockMovements.map((m: any) => ({
-            id: m.id,
-            medicineId: m.medicineId,
-            batchId: m.batchId || undefined,
-            convoyId: m.convoyId || undefined,
-            convoyItemId: m.convoyItemId || undefined,
-            receiptId: m.receiptId || undefined,
-            receiptItemId: m.receiptItemId || undefined,
-            type: m.type,
-            quantity: m.quantity,
-            reason: m.reason || undefined,
-            notes: m.notes || undefined,
-            createdAt: new Date(m.createdAt),
-            deviceId: m.deviceId || undefined,
-            userId: m.userId || undefined,
+            id: m.id, medicineId: m.medicineId, batchId: m.batchId || undefined,
+            convoyId: m.convoyId || undefined, convoyItemId: m.convoyItemId || undefined,
+            receiptId: m.receiptId || undefined, receiptItemId: m.receiptItemId || undefined,
+            type: m.type, quantity: m.quantity, reason: m.reason || undefined,
+            notes: m.notes || undefined, createdAt: new Date(m.createdAt),
+            deviceId: m.deviceId || undefined, userId: m.userId || undefined,
           })));
           totalSynced += data.stockMovements.length;
         }
 
         if (data.cartons?.length > 0) {
           await db.cartons.bulkPut(data.cartons.map((c: any) => ({
-            id: c.id,
-            code: c.code,
-            label: c.label || undefined,
-            sectionId: c.sectionId || undefined,
-            locationNote: c.locationNote || undefined,
+            id: c.id, code: c.code, label: c.label || undefined,
+            specialty: c.specialty || undefined, category: c.category || undefined,
+            sectionId: c.sectionId || undefined, locationNote: c.locationNote || undefined,
             isActive: c.isActive ?? true,
-            createdAt: new Date(c.createdAt),
-            updatedAt: new Date(c.updatedAt),
+            createdAt: new Date(c.createdAt), updatedAt: new Date(c.updatedAt),
           })));
           totalSynced += data.cartons.length;
+        }
+
+        if (data.convoys?.length > 0) {
+          await db.convoys.bulkPut(data.convoys.map((c: any) => ({
+            id: c.id, name: c.name, date: c.date,
+            location: c.location || "", responsiblePerson: c.responsiblePerson || "",
+            notes: c.notes || "", status: c.status,
+            createdAt: new Date(c.createdAt), updatedAt: new Date(c.updatedAt),
+            completedAt: c.completedAt ? new Date(c.completedAt) : undefined,
+          })));
+          totalSynced += data.convoys.length;
+        }
+
+        if (data.convoyItems?.length > 0) {
+          await db.convoyItems.bulkPut(data.convoyItems.map((i: any) => ({
+            id: i.id, convoyId: i.convoyId, medicineId: i.medicineId,
+            batchId: i.batchId || undefined, sourceCartonId: i.sourceCartonId || undefined,
+            quantityTaken: i.quantityTaken, quantityDispensed: i.quantityDispensed,
+            quantityReturned: i.quantityReturned || 0, quantityMissingOrDamaged: i.quantityMissingOrDamaged || 0,
+            reconciliationNote: i.reconciliationNote || "",
+            returnedAt: i.returnedAt ? new Date(i.returnedAt) : undefined,
+            reconciledAt: i.reconciledAt ? new Date(i.reconciledAt) : undefined,
+            createdAt: new Date(i.createdAt), updatedAt: new Date(i.updatedAt),
+          })));
+          totalSynced += data.convoyItems.length;
         }
       } catch (dbErr) {
         console.error("[SYNC] IndexedDB transaction failed:", dbErr);
@@ -241,11 +240,15 @@ async function pullServerChanges() {
       batCursor = data.nextCursors.batches;
       movCursor = data.nextCursors.stockMovements;
       carCursor = data.nextCursors.cartons;
+      conCursor = data.nextCursors.convoys;
+      conItemCursor = data.nextCursors.convoyItems;
 
       medLastSync = data.nextLastSync.medicines;
       batLastSync = data.nextLastSync.batches;
       movLastSync = data.nextLastSync.stockMovements;
       carLastSync = data.nextLastSync.cartons;
+      conLastSync = data.nextLastSync.convoys;
+      conItemLastSync = data.nextLastSync.convoyItems;
 
       hasMore = data.hasMore;
     }
@@ -254,6 +257,8 @@ async function pullServerChanges() {
     localStorage.setItem("sls-bat-lastSync", batLastSync);
     localStorage.setItem("sls-mov-lastSync", movLastSync);
     localStorage.setItem("sls-car-lastSync", carLastSync);
+    localStorage.setItem("sls-con-lastSync", conLastSync);
+    localStorage.setItem("sls-conItem-lastSync", conItemLastSync);
     
     localStorage.removeItem("sls-last-pull-sync");
     localStorage.removeItem("sls-last-sync");

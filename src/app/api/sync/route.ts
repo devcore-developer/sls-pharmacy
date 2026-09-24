@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { verifyApiAuth } from "@/lib/auth/api-auth";
 
 // GET: Pull Sync (Fetch server changes)
-// GET: Pull Sync (Fetch server changes)
 export async function GET(req: NextRequest) {
   const user = await verifyApiAuth(req);
   if (!user) {
@@ -13,13 +12,14 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     
-    // دعم الـ Legacy lastSync للتوافق مع الإصدارات السابقة
     const globalLastSync = searchParams.get("lastSync");
     
     const medLastSync = searchParams.get("medLastSync") || globalLastSync || new Date(0).toISOString();
     const batLastSync = searchParams.get("batLastSync") || globalLastSync || new Date(0).toISOString();
     const movLastSync = searchParams.get("movLastSync") || globalLastSync || new Date(0).toISOString();
     const carLastSync = searchParams.get("carLastSync") || globalLastSync || new Date(0).toISOString();
+    const conLastSync = searchParams.get("conLastSync") || globalLastSync || new Date(0).toISOString();
+    const conItemLastSync = searchParams.get("conItemLastSync") || globalLastSync || new Date(0).toISOString();
 
     const limit = 500;
 
@@ -27,20 +27,17 @@ export async function GET(req: NextRequest) {
     const batCursor = searchParams.get("batCursor") || "";
     const movCursor = searchParams.get("movCursor") || "";
     const carCursor = searchParams.get("carCursor") || "";
+    const conCursor = searchParams.get("conCursor") || "";
+    const conItemCursor = searchParams.get("conItemCursor") || "";
 
-    const [medicines, batches, stockMovements, cartons] = await Promise.all([
+    const [medicines, batches, stockMovements, cartons, convoys, convoyItems] = await Promise.all([
       prisma.medicine.findMany({
         take: limit,
         orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
         where: {
           OR: [
             { updatedAt: { gt: medLastSync } },
-            {
-              AND: [
-                { updatedAt: { equals: medLastSync } },
-                { id: { gt: medCursor } }
-              ]
-            }
+            { AND: [{ updatedAt: { equals: medLastSync } }, { id: { gt: medCursor } }] }
           ]
         }
       }),
@@ -50,12 +47,7 @@ export async function GET(req: NextRequest) {
         where: {
           OR: [
             { updatedAt: { gt: batLastSync } },
-            {
-              AND: [
-                { updatedAt: { equals: batLastSync } },
-                { id: { gt: batCursor } }
-              ]
-            }
+            { AND: [{ updatedAt: { equals: batLastSync } }, { id: { gt: batCursor } }] }
           ]
         }
       }),
@@ -65,12 +57,7 @@ export async function GET(req: NextRequest) {
         where: {
           OR: [
             { createdAt: { gt: movLastSync } },
-            {
-              AND: [
-                { createdAt: { equals: movLastSync } },
-                { id: { gt: movCursor } }
-              ]
-            }
+            { AND: [{ createdAt: { equals: movLastSync } }, { id: { gt: movCursor } }] }
           ]
         }
       }),
@@ -80,12 +67,27 @@ export async function GET(req: NextRequest) {
         where: {
           OR: [
             { updatedAt: { gt: carLastSync } },
-            {
-              AND: [
-                { updatedAt: { equals: carLastSync } },
-                { id: { gt: carCursor } }
-              ]
-            }
+            { AND: [{ updatedAt: { equals: carLastSync } }, { id: { gt: carCursor } }] }
+          ]
+        }
+      }),
+      prisma.convoy.findMany({
+        take: limit,
+        orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+        where: {
+          OR: [
+            { updatedAt: { gt: conLastSync } },
+            { AND: [{ updatedAt: { equals: conLastSync } }, { id: { gt: conCursor } }] }
+          ]
+        }
+      }),
+      prisma.convoyItem.findMany({
+        take: limit,
+        orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+        where: {
+          OR: [
+            { updatedAt: { gt: conItemLastSync } },
+            { AND: [{ updatedAt: { equals: conItemLastSync } }, { id: { gt: conItemCursor } }] }
           ]
         }
       }),
@@ -94,30 +96,36 @@ export async function GET(req: NextRequest) {
     const hasNextPage = (arr: any[]) => arr.length === limit;
 
     return NextResponse.json({
+      serverTime: new Date().toISOString(),
       medicines,
       batches,
       stockMovements,
       cartons,
+      convoys,
+      convoyItems,
       nextCursors: {
         medicines: medicines.length > 0 ? medicines[medicines.length - 1].id : medCursor,
         batches: batches.length > 0 ? batches[batches.length - 1].id : batCursor,
         stockMovements: stockMovements.length > 0 ? stockMovements[stockMovements.length - 1].id : movCursor,
         cartons: cartons.length > 0 ? cartons[cartons.length - 1].id : carCursor,
+        convoys: convoys.length > 0 ? convoys[convoys.length - 1].id : conCursor,
+        convoyItems: convoyItems.length > 0 ? convoyItems[convoyItems.length - 1].id : conItemCursor,
       },
       nextLastSync: {
         medicines: medicines.length > 0 ? medicines[medicines.length - 1].updatedAt.toISOString() : medLastSync,
         batches: batches.length > 0 ? batches[batches.length - 1].updatedAt.toISOString() : batLastSync,
         stockMovements: stockMovements.length > 0 ? stockMovements[stockMovements.length - 1].createdAt.toISOString() : movLastSync,
         cartons: cartons.length > 0 ? cartons[cartons.length - 1].updatedAt.toISOString() : carLastSync,
+        convoys: convoys.length > 0 ? convoys[convoys.length - 1].updatedAt.toISOString() : conLastSync,
+        convoyItems: convoyItems.length > 0 ? convoyItems[convoyItems.length - 1].updatedAt.toISOString() : conItemLastSync,
       },
-      hasMore: hasNextPage(medicines) || hasNextPage(batches) || hasNextPage(stockMovements) || hasNextPage(cartons)
+      hasMore: hasNextPage(medicines) || hasNextPage(batches) || hasNextPage(stockMovements) || hasNextPage(cartons) || hasNextPage(convoys) || hasNextPage(convoyItems)
     });
   } catch (error) {
     console.error("Pull sync error:", error);
     return NextResponse.json({ error: "Failed to pull updates" }, { status: 500 });
   }
 }
-
 // POST: Push Sync (Send local changes to server)
 export async function POST(request: NextRequest) {
   // 1. التحقق من المصادقة (Authentication)
@@ -337,6 +345,37 @@ async function dispatchOperation(
       }
       break;
 
+    case "convoyItem":
+      if (operationType === "create" || operationType === "update") {
+        await prisma.convoyItem.upsert({
+          where: { id: entityId },
+          create: {
+            id: entityId,
+            convoyId: (p.convoyId as string) || "",
+            medicineId: (p.medicineId as string) || "",
+            batchId: (p.batchId as string) || null,
+            sourceCartonId: (p.sourceCartonId as string) || null,
+            quantityTaken: (p.quantityTaken as number) || 0,
+            quantityDispensed: (p.quantityDispensed as number) || 0,
+            quantityReturned: (p.quantityReturned as number) || 0,
+            quantityMissingOrDamaged: (p.quantityMissingOrDamaged as number) || 0,
+            reconciliationNote: (p.reconciliationNote as string) || "",
+            createdAt: p.createdAt ? new Date(p.createdAt as string) : new Date(),
+            updatedAt: p.updatedAt ? new Date(p.updatedAt as string) : new Date(),
+          },
+          update: {
+            quantityTaken: p.quantityTaken !== undefined ? (p.quantityTaken as number) : undefined,
+            quantityDispensed: p.quantityDispensed !== undefined ? (p.quantityDispensed as number) : undefined,
+            quantityReturned: p.quantityReturned !== undefined ? (p.quantityReturned as number) : undefined,
+            quantityMissingOrDamaged: p.quantityMissingOrDamaged !== undefined ? (p.quantityMissingOrDamaged as number) : undefined,
+            reconciliationNote: p.reconciliationNote !== undefined ? (p.reconciliationNote as string) : undefined,
+            updatedAt: new Date(),
+          },
+        });
+      } else if (operationType === "delete") {
+        await prisma.convoyItem.delete({ where: { id: entityId } }).catch(() => {});
+      }
+      break;
 
 
     case "stockReceipt":
